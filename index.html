@@ -65,6 +65,8 @@
   #stage{position:absolute;inset:52px 0 0 0;overflow:auto;display:none;}
   #board{position:relative;min-height:100%;min-width:100%;}
   .board-hint{position:absolute;top:16px;left:20px;color:var(--muted-2);font-size:12.5px;pointer-events:none;}
+  .board-content{position:absolute;left:0;top:0;}
+  .panning,.panning *{cursor:grabbing!important;}
   .note{position:absolute;width:210px;height:auto;min-height:60px;max-height:440px;background:var(--card);border:1px solid var(--line);border-radius:10px;border-left:4px solid var(--accent,#888);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow);transition:box-shadow .12s,border-color .12s;}
   .note:hover{border-color:#45454f;}
   .note.pinned{border-left-width:6px;border-color:#484853;}
@@ -477,7 +479,7 @@ document.getElementById("homeMenu").addEventListener("click",e=>{ const p=popup(
   [["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{const it=document.createElement("div");it.className="menu-item";it.textContent=l;it.addEventListener("click",()=>{closePop();fn();});p.appendChild(it);}); });
 
 /* ================= BOARD ================= */
-function openBoard(id){ state=app.boards.find(b=>b.id===id); if(!state)return; if(!state.links)state.links=[]; mode="normal"; undoStack=[]; closePop(); homeEl.style.display="none"; barEl.style.display="flex"; render(); }
+function openBoard(id){ state=app.boards.find(b=>b.id===id); if(!state)return; if(!state.links)state.links=[]; mode="normal"; undoStack=[]; closePop(); homeEl.style.display="none"; barEl.style.display="flex"; render(); centerBoard(); }
 document.getElementById("toHome").addEventListener("click",goHome);
 titleInput.addEventListener("input",()=>{ if(state){ state.title=titleInput.value; save(); }});
 document.getElementById("undoBtn").addEventListener("click",doUndo);
@@ -580,7 +582,7 @@ function attachMobileNote(el,n,pk){
     if(e.target.closest("button"))return; // ヘッダーの各ボタンは従来どおり
     e.preventDefault();
     const startX=e.clientX, startY=e.clientY, oL=px(n,pk), oT=py(n,pk);
-    const z=(el.parentElement&&el.parentElement.style.zoom)?(parseFloat(el.parentElement.style.zoom)||1):1;
+    const z=zoomOf(el); const mc=minCoord();
     const before=(pk==="main")?snapshot():null;
     let dragging=false, aborted=false;
     try{el.setPointerCapture(e.pointerId);}catch(_){}
@@ -589,7 +591,7 @@ function attachMobileNote(el,n,pk){
       const dx=ev.clientX-startX, dy=ev.clientY-startY;
       if(!dragging && Math.hypot(dx,dy)>8){ dragging=true; el.classList.add("dragging"); }
       if(dragging){
-        const nx=Math.max(0,oL+dx/z), ny=Math.max(0,oT+dy/z);
+        const nx=Math.max(mc,oL+dx/z), ny=Math.max(mc,oT+dy/z);
         el.style.left=nx+"px"; el.style.top=ny+"px"; setpos(n,pk,Math.round(nx),Math.round(ny));
         if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); }
       }
@@ -608,12 +610,12 @@ function startDrag(e,n,el,pk){
   e.preventDefault();
   const before=(pk==="main")?snapshot():null;
   const sx=e.clientX, sy=e.clientY, oL=px(n,pk), oT=py(n,pk);
-  const z=(el.parentElement&&el.parentElement.style.zoom)?(parseFloat(el.parentElement.style.zoom)||1):1; // 縮小表示ぶんを補正
+  const z=zoomOf(el); const mc=minCoord(); // 縮小補正＋置ける最小座標
   el.classList.add("dragging"); try{el.setPointerCapture(e.pointerId);}catch(_){}
-  function mv(ev){ const nx=Math.max(0,oL+(ev.clientX-sx)/z), ny=Math.max(0,oT+(ev.clientY-sy)/z); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
+  function mv(ev){ const nx=Math.max(mc,oL+(ev.clientX-sx)/z), ny=Math.max(mc,oT+(ev.clientY-sy)/z); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
   function up(){
     document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); el.classList.remove("dragging");
-    setpos(n,pk,Math.round(Math.max(0,parseFloat(el.style.left)||0)),Math.round(Math.max(0,parseFloat(el.style.top)||0)));
+    setpos(n,pk,Math.round(Math.max(mc,parseFloat(el.style.left)||0)),Math.round(Math.max(mc,parseFloat(el.style.top)||0)));
     if(pk==="main"&&before)pushUndo(before);
     save(); growBoard(pk);
   }
@@ -622,16 +624,36 @@ function startDrag(e,n,el,pk){
 const noteSizes={}; // id -> {w,h}（描画後に実測。矢印・盤サイズ計算で使う）
 function nW(n){ const s=noteSizes[n.id]; return (s&&s.w)||(n.w||L.W); }
 function nH(n){ const s=noteSizes[n.id]; return (s&&s.h)||L.H; }
-function sizeBoard(div,pk){ let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,px(n,pk)+nW(n)+40); h=Math.max(h,py(n,pk)+nH(n)+40); }); div.style.width=w+"px"; div.style.height=h+"px"; }
+// ---- 無限キャンバス：通常画面だけ上下左右に余白(ORIGIN)を持たせ、上や左にも付箋を置ける ----
+const ORIGIN=1000;
+function boardOrigin(){ return mode==="normal"?ORIGIN:0; }
+function minCoord(){ return -Math.max(0, boardOrigin()-40); } // 付箋を置ける最小座標（画面外にはみ出さない範囲）
+function zoomOf(el){ const b=el&&el.closest&&el.closest("#board,.sboard"); return b?(parseFloat(b.style.zoom)||1):1; }
+function sizeBoard(div,pk){ const O=boardOrigin(); let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,O+px(n,pk)+nW(n)+O); h=Math.max(h,O+py(n,pk)+nH(n)+O); }); div.style.width=Math.max(w,O*2+200)+"px"; div.style.height=Math.max(h,O*2+200)+"px"; }
 function growBoard(pk){ const div=pk==="sh"?curShBoard:curMainBoard; if(div)sizeBoard(div,pk); }
+function centerBoard(){ if(mode!=="normal")return; const t=Math.max(0, ORIGIN*currentZoom()-80); stageEl.scrollLeft=t; stageEl.scrollTop=t; }
+// 中ボタン(ホイール押し込み)ドラッグで画面を自由に移動
+function attachPan(scroller){
+  scroller.addEventListener("mousedown",e=>{ if(e.button===1)e.preventDefault(); }); // 中クリックのオートスクロール抑止
+  scroller.addEventListener("pointerdown",e=>{
+    if(e.button!==1)return; e.preventDefault();
+    const sx=e.clientX, sy=e.clientY, sl=scroller.scrollLeft, st=scroller.scrollTop;
+    scroller.classList.add("panning");
+    function mv(ev){ scroller.scrollLeft=sl-(ev.clientX-sx); scroller.scrollTop=st-(ev.clientY-sy); }
+    function up(){ document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); scroller.classList.remove("panning"); }
+    document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
+  });
+}
 
 function renderInto(div,pk,hintText){
   div.style.zoom=""; // 実測は等倍で（ズームは呼び出し側で後掛け）
   div.innerHTML="";
+  const O=boardOrigin();
+  const wrap=document.createElement("div"); wrap.className="board-content"; wrap.style.left=O+"px"; wrap.style.top=O+"px"; div.appendChild(wrap);
   let svg=null;
-  if(pk==="main"){ svg=makeArrowSvg(); div.appendChild(svg); }
-  if(!state.notes.length && hintText){ const h=document.createElement("div"); h.className="board-hint"; h.textContent=hintText; div.appendChild(h); }
-  state.notes.forEach(n=>{ const el=noteEl(n,pk); el.style.left=px(n,pk)+"px"; el.style.top=py(n,pk)+"px"; if(n.w)el.style.width=n.w+"px"; if(pk==="sh"&&n.srot)el.style.transform="rotate("+n.srot+"deg)"; div.appendChild(el); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; });
+  if(pk==="main"){ svg=makeArrowSvg(); wrap.appendChild(svg); }
+  if(!state.notes.length && hintText){ const h=document.createElement("div"); h.className="board-hint"; h.textContent=hintText; wrap.appendChild(h); }
+  state.notes.forEach(n=>{ const el=noteEl(n,pk); el.style.left=px(n,pk)+"px"; el.style.top=py(n,pk)+"px"; if(n.w)el.style.width=n.w+"px"; if(pk==="sh"&&n.srot)el.style.transform="rotate("+n.srot+"deg)"; wrap.appendChild(el); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; });
   sizeBoard(div,pk);
   if(svg) drawLinks(svg,pk);
 }
@@ -669,13 +691,21 @@ function renderNormal(){
 }
 
 /* ---- add notes ---- */
+function viewCenterLogical(board,scroller){ // 今見えている中央を論理座標で返す
+  const wrap=board&&board.querySelector(".board-content");
+  const sr=(scroller||stageEl).getBoundingClientRect();
+  const z=(board&&parseFloat(board.style.zoom))||1;
+  if(!wrap){ return {x:(sr.width/2)/z,y:(sr.height/3)/z,z}; }
+  const wr=wrap.getBoundingClientRect();
+  return {x:(sr.left+sr.width/2-wr.left)/z, y:(sr.top+Math.min(sr.height/2,sr.height/3+40)-wr.top)/z, z};
+}
 function addNoteOfTheme(themeId){
   pushUndo(snapshot());
   const n={id:uid(),text:"",themeId,pinned:false};
   const scroller=(mode==="shuffle"&&curMainBoard)?curMainBoard.parentElement:stageEl;
-  const sl=(scroller&&scroller.scrollLeft)||0, st=(scroller&&scroller.scrollTop)||0, vw=(scroller&&scroller.clientWidth)||600, vh=(scroller&&scroller.clientHeight)||400;
-  const k=(state.spawn++)%7;
-  n.x=Math.round(sl+Math.max(40,vw/2-L.W/2)+k*18-40); n.y=Math.round(st+Math.min(150,vh/3)+k*18);
+  const board=(mode==="shuffle"&&curMainBoard)?curMainBoard:boardEl;
+  const c=viewCenterLogical(board,scroller); const k=(state.spawn++)%7, mc=minCoord();
+  n.x=Math.round(Math.max(mc,c.x-L.W/2+k*18)); n.y=Math.round(Math.max(mc,c.y+k*18));
   const s=scatterSlot(state.notes.length); n.sx=s.x; n.sy=s.y; n.srot=s.rot;
   state.notes.push(n); save(); refresh(); focusNote(n.id);
 }
@@ -683,11 +713,13 @@ function addAt(pk,x,y){
   pushUndo(snapshot());
   const n={id:uid(),text:"",themeId:state.themes[0].id,pinned:false};
   if(pk==="sh"){ n.sx=Math.max(0,x-L.W/2); n.sy=Math.max(0,y-20); n.srot=Math.random()*8-4; const k=(state.spawn++)%7; n.x=30+k*18; n.y=30+k*18; }
-  else{ n.x=Math.max(0,x-L.W/2); n.y=Math.max(0,y-20); const s=scatterSlot(state.notes.length); n.sx=s.x; n.sy=s.y; n.srot=s.rot; }
+  else{ const mc=minCoord(); n.x=Math.max(mc,x-L.W/2); n.y=Math.max(mc,y-20); const s=scatterSlot(state.notes.length); n.sx=s.x; n.sy=s.y; n.srot=s.rot; }
   state.notes.push(n); save(); refresh(); focusNote(n.id);
 }
 function focusNote(id){ if(isMobileView()){ const n=state.notes.find(x=>x.id===id); if(n){ openNoteFullscreen(n); return; } } const el=document.querySelector('.note[data-id="'+id+'"] .note-body'); if(el)el.focus(); }
-stageEl.addEventListener("dblclick",e=>{ if(e.target!==boardEl&&e.target!==stageEl)return; addAt("main",e.offsetX,e.offsetY); });
+function dblAddOn(board,pk,e){ if(e.target.closest&&e.target.closest(".note"))return; const wrap=board.querySelector(".board-content"); if(!wrap)return; const wr=wrap.getBoundingClientRect(); const z=parseFloat(board.style.zoom)||1; addAt(pk,(e.clientX-wr.left)/z,(e.clientY-wr.top)/z); }
+stageEl.addEventListener("dblclick",e=>dblAddOn(boardEl,"main",e));
+attachPan(stageEl);
 
 /* ================= ARROWS (links) ================= */
 const SVGNS="http://www.w3.org/2000/svg";
@@ -758,7 +790,7 @@ function startLink(e,src,el,pk){
   svg.classList.add("linking");
   const temp=document.createElementNS(SVGNS,"path"); temp.setAttribute("class","temp"); svg.appendChild(temp);
   let lastTarget=null;
-  const z=(board.style.zoom)?(parseFloat(board.style.zoom)||1):1;
+  const z=zoomOf(el);
   function mv(ev){
     const r=board.getBoundingClientRect(); const cur={x:(ev.clientX-r.left)/z,y:(ev.clientY-r.top)/z};
     temp.setAttribute("d",tempPath(src,pk,cur));
@@ -807,7 +839,7 @@ function renderShuffle(){
   left.innerHTML='<div class="pane-head"><span class="lbl">メイン</span><span class="sub">本番の配置</span></div>';
   const lb=document.createElement("div"); lb.className="sboard"; left.appendChild(lb); splitEl.appendChild(left);
   curMainBoard=lb; renderInto(lb,"main","ダブルクリックで付箋を追加。");
-  lb.addEventListener("dblclick",e=>{ if(e.target!==lb)return; addAt("main",e.offsetX,e.offsetY); });
+  lb.addEventListener("dblclick",e=>dblAddOn(lb,"main",e)); attachPan(left);
 
   const right=document.createElement("div"); right.className="pane";
   const rh=document.createElement("div"); rh.className="pane-head";
@@ -815,7 +847,7 @@ function renderShuffle(){
   const bRe=document.createElement("button"); bRe.className="icnbtn"; bRe.textContent="混ぜ直す"; rh.appendChild(bRe); right.appendChild(rh);
   const rb=document.createElement("div"); rb.className="sboard"; right.appendChild(rb); splitEl.appendChild(right);
   curShBoard=rb; renderInto(rb,"sh","ダブルクリックで付箋を追加。");
-  rb.addEventListener("dblclick",e=>{ if(e.target!==rb)return; addAt("sh",e.offsetX,e.offsetY); });
+  rb.addEventListener("dblclick",e=>dblAddOn(rb,"sh",e)); attachPan(right);
   bRe.addEventListener("click",()=>{ pushUndo(snapshot()); reshuffle(); save(); renderInto(rb,"sh"); toast("混ぜ直しました"); });
 
   requestAnimationFrame(()=>{ if(left){left.scrollTop=sc.l;left.scrollLeft=sc.ll;} if(right){right.scrollTop=sc.r;right.scrollLeft=sc.rl;} });
@@ -836,7 +868,7 @@ function renderShuffleMobile(){
   curMainBoard=null; curShBoard=rb;
   renderInto(rb,"sh","付箋を長めにタップ→ドラッグで移動。追加は ☰ から。");
   rb.style.zoom=currentZoom();
-  attachPinchZoom(pane,()=>rb);
+  attachPinchZoom(pane,()=>rb); attachPan(pane);
   back.addEventListener("click",()=>setMode("normal"));
   bRe.addEventListener("click",()=>{ pushUndo(snapshot()); reshuffle(); save(); renderInto(rb,"sh"); rb.style.zoom=currentZoom(); toast("混ぜ直しました"); });
 }
