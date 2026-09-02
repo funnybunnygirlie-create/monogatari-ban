@@ -497,9 +497,10 @@ function attachMobileNote(el,n,pk){
     const startX=e.clientX, startY=e.clientY, oL=px(n,pk), oT=py(n,pk);
     const z=(el.parentElement&&el.parentElement.style.zoom)?(parseFloat(el.parentElement.style.zoom)||1):1;
     const before=(pk==="main")?snapshot():null;
-    let dragging=false;
+    let dragging=false, aborted=false;
     try{el.setPointerCapture(e.pointerId);}catch(_){}
     function mv(ev){
+      if(pinchActive){ aborted=true; if(dragging){ el.classList.remove("dragging"); setpos(n,pk,oL,oT); el.style.left=oL+"px"; el.style.top=oT+"px"; dragging=false; } return; } // ピンチ中は付箋を動かさない
       const dx=ev.clientX-startX, dy=ev.clientY-startY;
       if(!dragging && Math.hypot(dx,dy)>8){ dragging=true; el.classList.add("dragging"); }
       if(dragging){
@@ -511,7 +512,8 @@ function attachMobileNote(el,n,pk){
     function up(){
       document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up);
       el.classList.remove("dragging");
-      if(dragging){ if(pk==="main"&&before)pushUndo(before); save(); growBoard(pk); }
+      if(aborted){ /* ピンチに移行したので何もしない */ }
+      else if(dragging){ if(pk==="main"&&before)pushUndo(before); save(); growBoard(pk); }
       else { openNoteFullscreen(n); }
     }
     document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
@@ -551,7 +553,26 @@ function computeBoardZoom(){
   const w = document.documentElement.clientWidth || window.innerWidth || 375;
   return Math.max(0.4, Math.min(1, w/(across*L.W)));
 }
-function applyBoardZoom(){ boardEl.style.zoom = isMobileView() ? computeBoardZoom() : ""; }
+let pinchActive=false, userBoardZoom=null; // userBoardZoom=ピンチで決めた倍率（未設定なら自動フィット）
+function currentZoom(){ return isMobileView() ? (userBoardZoom||computeBoardZoom()) : 1; }
+function applyBoardZoom(){ boardEl.style.zoom = isMobileView() ? currentZoom() : ""; }
+/* ピンチ中はスクロールを止めて拡大、指を離したらスクロール可（scroller=スクロールする器, getBoard=拡大する盤） */
+function attachPinchZoom(scroller, getBoard){
+  const dist=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+  let startDist=0, baseZoom=1;
+  scroller.addEventListener("touchstart",e=>{
+    if(!isMobileView())return;
+    if(e.touches.length>=2){ pinchActive=true; startDist=dist(e.touches)||1; baseZoom=parseFloat(getBoard().style.zoom)||computeBoardZoom(); scroller.style.overflow="hidden"; scroller.style.touchAction="none"; e.preventDefault(); }
+  },{passive:false});
+  scroller.addEventListener("touchmove",e=>{
+    if(!pinchActive)return;
+    e.preventDefault();
+    if(e.touches.length>=2){ let z=baseZoom*(dist(e.touches)/startDist); z=Math.max(0.25,Math.min(2.2,z)); userBoardZoom=z; getBoard().style.zoom=z; }
+  },{passive:false});
+  function end(e){ if(!pinchActive)return; if(e.touches.length===0){ pinchActive=false; scroller.style.overflow=""; scroller.style.touchAction=""; } else { e.preventDefault(); } }
+  scroller.addEventListener("touchend",end,{passive:false});
+  scroller.addEventListener("touchcancel",end,{passive:false});
+}
 function renderNormal(){
   curMainBoard=boardEl;
   renderInto(boardEl,"main","上の色をクリックで付箋を追加。ドラッグで移動、ピンで固定、右クリック（長押し）でテーマ変更・削除。");
@@ -725,9 +746,10 @@ function renderShuffleMobile(){
   const rb=document.createElement("div"); rb.className="sboard"; pane.appendChild(rb); splitEl.appendChild(pane);
   curMainBoard=null; curShBoard=rb;
   renderInto(rb,"sh","付箋を長めにタップ→ドラッグで移動。追加は ☰ から。");
-  rb.style.zoom=computeBoardZoom();
+  rb.style.zoom=currentZoom();
+  attachPinchZoom(pane,()=>rb);
   back.addEventListener("click",()=>setMode("normal"));
-  bRe.addEventListener("click",()=>{ pushUndo(snapshot()); reshuffle(); save(); renderInto(rb,"sh"); rb.style.zoom=computeBoardZoom(); toast("混ぜ直しました"); });
+  bRe.addEventListener("click",()=>{ pushUndo(snapshot()); reshuffle(); save(); renderInto(rb,"sh"); rb.style.zoom=currentZoom(); toast("混ぜ直しました"); });
 }
 function setMode(m){ mode=m; if(m==="shuffle")ensureScatter(); render(); }
 document.querySelectorAll("#modeToggle button").forEach(b=>b.addEventListener("click",()=>setMode(b.dataset.mode)));
@@ -874,9 +896,10 @@ document.getElementById("importFile").addEventListener("change",e=>{ const f=e.t
   r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d&&Array.isArray(d.boards)){ d.boards.forEach(normalizeBoard); app=d; } else if(d&&Array.isArray(d.notes)){ app.boards.push(normalizeBoard(d)); } save(); goHome(); }catch(_){}}; r.readAsText(f); e.target.value=""; });
 
 let rz; window.addEventListener("resize",()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(state){ if(mode==="normal")renderNormal(); else renderShuffle(); } },140); });
-window.addEventListener("orientationchange",()=>{ setTimeout(()=>{ if(state){ if(mode==="normal")renderNormal(); else renderShuffle(); } },250); });
+window.addEventListener("orientationchange",()=>{ userBoardZoom=null; setTimeout(()=>{ if(state){ if(mode==="normal")renderNormal(); else renderShuffle(); } },250); });
 
 document.querySelectorAll(".sync-ui").forEach(b=>b.addEventListener("click",onSyncClick));
+attachPinchZoom(stageEl,()=>boardEl); // 通常画面：ピンチでボードを拡大縮小
 (async function(){
   app=await loadApp(); if(!app)app={boards:[sampleBoard()]};
   syncState=(lsGet("novelboard_signedin")==="1")?"syncing":"signedout";
