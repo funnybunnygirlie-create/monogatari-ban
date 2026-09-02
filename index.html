@@ -122,6 +122,18 @@
 
   #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);background:#2b2b34;border:1px solid var(--line);color:var(--text);padding:8px 16px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.4);}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* 付箋の全画面編集（スマホ） */
+  #noteModal{position:fixed;inset:0;z-index:150;background:var(--bg);display:flex;flex-direction:column;border-left:4px solid var(--accent,#888);}
+  #noteModal[hidden]{display:none;}
+  .nm-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);}
+  .nm-head .nm-spacer{flex:1;}
+  .nm-head .icnbtn{font-size:16px;}
+  .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
+  .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
+  .nm-themebar .sw.on{border-color:var(--muted);}
+  .nm-themebar .sw .d{width:13px;height:13px;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;}
+  .nm-body{flex:1;width:100%;border:none;outline:none;background:transparent;color:var(--text);font-family:var(--sans);font-size:18px;line-height:1.7;padding:16px 18px;resize:none;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   .sync-ui{white-space:nowrap;}
 
@@ -164,6 +176,17 @@
   </div>
   <div id="stage"><div id="board"></div></div>
   <div id="split"></div>
+  <div id="noteModal" hidden>
+    <div class="nm-head">
+      <button class="icnbtn ghost" id="nmClose">‹ 戻る</button>
+      <span class="nm-spacer"></span>
+      <button class="icnbtn ghost" id="nmTheme" title="テーマを変更">●</button>
+      <button class="icnbtn ghost" id="nmPin" title="固定">📍</button>
+      <button class="icnbtn ghost" id="nmDel" title="削除">×</button>
+    </div>
+    <div class="nm-themebar" id="nmThemebar" hidden></div>
+    <textarea class="nm-body" id="nmBody" placeholder="付箋の内容…" spellcheck="false"></textarea>
+  </div>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 
 <script>
@@ -438,17 +461,52 @@ function noteEl(n, pk){
     '<button class="icn del" title="削除">×</button></div>'+
     '<div class="note-body" contenteditable="true" spellcheck="false"></div>';
   const body=el.querySelector(".note-body"); body.textContent=n.text||"";
-  body.addEventListener("input",()=>{ n.text=body.innerText; save(); });
-  body.addEventListener("paste",e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData("text"); document.execCommand("insertText",false,t); });
   el.querySelector(".dot").addEventListener("click",e=>{ e.stopPropagation(); openThemePicker(n,e.currentTarget); });
   el.querySelector(".pin").addEventListener("click",e=>{ e.stopPropagation(); pushUndo(snapshot()); n.pinned=!n.pinned; save(); refresh(); });
   el.querySelector(".del").addEventListener("click",e=>{ e.stopPropagation(); deleteNote(n); });
   const lb=el.querySelector(".link"); if(lb) lb.addEventListener("pointerdown",e=>{ if(e.button&&e.button!==0)return; e.preventDefault(); e.stopPropagation(); startLink(e,n,el,pk); });
-  el.querySelector(".note-head").addEventListener("pointerdown",e=>{ if(e.button&&e.button!==0)return; if(e.target.closest("button"))return; startDrag(e,n,el,pk); });
-  el.addEventListener("contextmenu",e=>{ e.preventDefault(); openNoteMenu(n,e.clientX,e.clientY); });
-  let lp; el.addEventListener("touchstart",e=>{ lp=setTimeout(()=>{const t=e.touches[0]; if(t)openNoteMenu(n,t.clientX,t.clientY);},500); },{passive:true});
-  el.addEventListener("touchend",()=>clearTimeout(lp)); el.addEventListener("touchmove",()=>clearTimeout(lp));
+  if(isMobileView()){
+    // スマホ：付箋全体がタップ（=全画面編集）／ドラッグ（=移動）の対象
+    body.contentEditable="false";
+    attachMobileNote(el,n,pk);
+  }else{
+    body.addEventListener("input",()=>{ n.text=body.innerText; save(); });
+    body.addEventListener("paste",e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData("text"); document.execCommand("insertText",false,t); });
+    el.querySelector(".note-head").addEventListener("pointerdown",e=>{ if(e.button&&e.button!==0)return; if(e.target.closest("button"))return; startDrag(e,n,el,pk); });
+    el.addEventListener("contextmenu",e=>{ e.preventDefault(); openNoteMenu(n,e.clientX,e.clientY); });
+    let lp; el.addEventListener("touchstart",e=>{ lp=setTimeout(()=>{const t=e.touches[0]; if(t)openNoteMenu(n,t.clientX,t.clientY);},500); },{passive:true});
+    el.addEventListener("touchend",()=>clearTimeout(lp)); el.addEventListener("touchmove",()=>clearTimeout(lp));
+  }
   return el;
+}
+/* スマホ：付箋全体で「タップ=全画面編集 / ドラッグ=移動」を判定 */
+function attachMobileNote(el,n,pk){
+  el.addEventListener("pointerdown",e=>{
+    if(e.button&&e.button!==0)return;
+    if(e.target.closest("button"))return; // ヘッダーの各ボタンは従来どおり
+    e.preventDefault();
+    const startX=e.clientX, startY=e.clientY, oL=px(n,pk), oT=py(n,pk);
+    const z=(el.parentElement&&el.parentElement.style.zoom)?(parseFloat(el.parentElement.style.zoom)||1):1;
+    const before=(pk==="main")?snapshot():null;
+    let dragging=false;
+    try{el.setPointerCapture(e.pointerId);}catch(_){}
+    function mv(ev){
+      const dx=ev.clientX-startX, dy=ev.clientY-startY;
+      if(!dragging && Math.hypot(dx,dy)>8){ dragging=true; el.classList.add("dragging"); }
+      if(dragging){
+        const nx=Math.max(0,oL+dx/z), ny=Math.max(0,oT+dy/z);
+        el.style.left=nx+"px"; el.style.top=ny+"px"; setpos(n,pk,Math.round(nx),Math.round(ny));
+        if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); }
+      }
+    }
+    function up(){
+      document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up);
+      el.classList.remove("dragging");
+      if(dragging){ if(pk==="main"&&before)pushUndo(before); save(); growBoard(pk); }
+      else { openNoteFullscreen(n); }
+    }
+    document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
+  });
 }
 function startDrag(e,n,el,pk){
   e.preventDefault();
@@ -509,7 +567,7 @@ function addAt(pk,x,y){
   else{ n.x=Math.max(0,x-L.W/2); n.y=Math.max(0,y-20); const s=scatterSlot(state.notes.length); n.sx=s.x; n.sy=s.y; n.srot=s.rot; }
   state.notes.push(n); save(); refresh(); focusNote(n.id);
 }
-function focusNote(id){ const el=document.querySelector('.note[data-id="'+id+'"] .note-body'); if(el)el.focus(); }
+function focusNote(id){ if(isMobileView()){ const n=state.notes.find(x=>x.id===id); if(n){ openNoteFullscreen(n); return; } } const el=document.querySelector('.note[data-id="'+id+'"] .note-body'); if(el)el.focus(); }
 stageEl.addEventListener("dblclick",e=>{ if(e.target!==boardEl&&e.target!==stageEl)return; addAt("main",e.offsetX,e.offsetY); });
 
 /* ================= ARROWS (links) ================= */
@@ -745,12 +803,43 @@ function openMobileMenu(anchor){
 }
 document.getElementById("hamburger").addEventListener("click",e=>openMobileMenu(e.currentTarget));
 
+/* ---- 付箋の全画面編集（スマホ） ---- */
+let nmNote=null, nmDelArmed=false;
+function openNoteFullscreen(n){
+  nmNote=n; nmDelArmed=false;
+  const modal=document.getElementById("noteModal");
+  const th=themeById(n.themeId), color=th?th.color:"#888";
+  modal.style.setProperty("--accent",color);
+  document.getElementById("nmTheme").style.color=color;
+  document.getElementById("nmBody").value=n.text||"";
+  document.getElementById("nmThemebar").hidden=true;
+  document.getElementById("nmDel").textContent="×";
+  updateNmPin();
+  modal.hidden=false;
+  setTimeout(()=>{ document.getElementById("nmBody").focus(); },60);
+}
+function closeNoteFullscreen(){ document.getElementById("noteModal").hidden=true; nmNote=null; refresh(); }
+function updateNmPin(){ const b=document.getElementById("nmPin"); if(nmNote)b.textContent=nmNote.pinned?"📌":"📍"; }
+function buildNmThemebar(){
+  const tb=document.getElementById("nmThemebar"); tb.innerHTML="";
+  state.themes.forEach(t=>{ const sw=document.createElement("div"); sw.className="sw"+(nmNote&&t.id===nmNote.themeId?" on":"");
+    sw.innerHTML='<span class="d" style="background:'+t.color+'"></span>'+esc(t.name);
+    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const c=t.color; const m=document.getElementById("noteModal"); m.style.setProperty("--accent",c); document.getElementById("nmTheme").style.color=c; tb.hidden=true; });
+    tb.appendChild(sw); });
+}
+document.getElementById("nmClose").addEventListener("click",closeNoteFullscreen);
+document.getElementById("nmBody").addEventListener("input",e=>{ if(nmNote){ nmNote.text=e.target.value; save(); } });
+document.getElementById("nmPin").addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.pinned=!nmNote.pinned; save(); updateNmPin(); });
+document.getElementById("nmDel").addEventListener("click",()=>{ if(!nmNote)return; if(!nmDelArmed){ nmDelArmed=true; document.getElementById("nmDel").textContent="もう一度で削除"; toast("もう一度押すと削除"); setTimeout(()=>{ nmDelArmed=false; const d=document.getElementById("nmDel"); if(d)d.textContent="×"; },2500); return; } const n=nmNote; closeNoteFullscreen(); deleteNote(n); });
+document.getElementById("nmTheme").addEventListener("click",()=>{ const tb=document.getElementById("nmThemebar"); if(tb.hidden){ buildNmThemebar(); tb.hidden=false; } else tb.hidden=true; });
+
 /* export / import */
 function doExport(){ const blob=new Blob([JSON.stringify(app,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="monogatari-ban.json"; a.click(); URL.revokeObjectURL(a.href); }
 document.getElementById("importFile").addEventListener("change",e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader();
   r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d&&Array.isArray(d.boards)){ d.boards.forEach(normalizeBoard); app=d; } else if(d&&Array.isArray(d.notes)){ app.boards.push(normalizeBoard(d)); } save(); goHome(); }catch(_){}}; r.readAsText(f); e.target.value=""; });
 
 let rz; window.addEventListener("resize",()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(state){ if(mode==="normal")renderNormal(); else renderShuffle(); } },140); });
+window.addEventListener("orientationchange",()=>{ setTimeout(()=>{ if(state){ if(mode==="normal")renderNormal(); else renderShuffle(); } },250); });
 
 document.querySelectorAll(".sync-ui").forEach(b=>b.addEventListener("click",onSyncClick));
 (async function(){
