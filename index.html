@@ -123,17 +123,20 @@
   #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);background:#2b2b34;border:1px solid var(--line);color:var(--text);padding:8px 16px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.4);}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-  /* 付箋の全画面編集（スマホ） */
-  #noteModal{position:fixed;inset:0;z-index:150;background:var(--bg);display:flex;flex-direction:column;border-left:4px solid var(--accent,#888);}
+  /* 付箋の拡大ポップアップ（スマホ） */
+  #noteModal{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(8,8,12,.5);padding:18px;animation:nmFade .16s ease;}
   #noteModal[hidden]{display:none;}
-  .nm-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);}
+  @keyframes nmFade{from{opacity:0;}to{opacity:1;}}
+  .nm-card{display:flex;flex-direction:column;width:min(560px,94vw);max-height:82vh;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent,#888);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden;animation:nmIn .16s ease;}
+  @keyframes nmIn{from{opacity:0;transform:scale(.92);}to{opacity:1;transform:scale(1);}}
+  .nm-head{display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--line);}
   .nm-head .nm-spacer{flex:1;}
   .nm-head .icnbtn{font-size:16px;}
   .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
   .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
   .nm-themebar .sw.on{border-color:var(--muted);}
   .nm-themebar .sw .d{width:13px;height:13px;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;}
-  .nm-body{flex:1;width:100%;border:none;outline:none;background:transparent;color:var(--text);font-family:var(--sans);font-size:18px;line-height:1.7;padding:16px 18px;resize:none;}
+  .nm-body{flex:1;width:100%;min-height:160px;border:none;outline:none;background:transparent;color:var(--text);font-family:var(--sans);font-size:18px;line-height:1.7;padding:16px 18px;resize:none;overflow:auto;touch-action:pan-y;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   .sync-ui{white-space:nowrap;}
 
@@ -177,15 +180,17 @@
   <div id="stage"><div id="board"></div></div>
   <div id="split"></div>
   <div id="noteModal" hidden>
-    <div class="nm-head">
-      <button class="icnbtn ghost" id="nmClose">‹ 戻る</button>
-      <span class="nm-spacer"></span>
-      <button class="icnbtn ghost" id="nmTheme" title="テーマを変更">●</button>
-      <button class="icnbtn ghost" id="nmPin" title="固定">📍</button>
-      <button class="icnbtn ghost" id="nmDel" title="削除">×</button>
+    <div class="nm-card">
+      <div class="nm-head">
+        <button class="icnbtn ghost" id="nmClose">閉じる</button>
+        <span class="nm-spacer"></span>
+        <button class="icnbtn ghost" id="nmTheme" title="テーマを変更">●</button>
+        <button class="icnbtn ghost" id="nmPin" title="固定">📍</button>
+        <button class="icnbtn ghost" id="nmDel" title="削除">×</button>
+      </div>
+      <div class="nm-themebar" id="nmThemebar" hidden></div>
+      <textarea class="nm-body" id="nmBody" placeholder="付箋の内容…" spellcheck="false"></textarea>
     </div>
-    <div class="nm-themebar" id="nmThemebar" hidden></div>
-    <textarea class="nm-body" id="nmBody" placeholder="付箋の内容…" spellcheck="false"></textarea>
   </div>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 
@@ -804,19 +809,20 @@ function openMobileMenu(anchor){
 document.getElementById("hamburger").addEventListener("click",e=>openMobileMenu(e.currentTarget));
 
 /* ---- 付箋の全画面編集（スマホ） ---- */
-let nmNote=null, nmDelArmed=false;
+let nmNote=null, nmDelArmed=false, nmFontPx=18, _nmPinch=null;
 function openNoteFullscreen(n){
   nmNote=n; nmDelArmed=false;
   const modal=document.getElementById("noteModal");
+  const card=modal.querySelector(".nm-card");
   const th=themeById(n.themeId), color=th?th.color:"#888";
-  modal.style.setProperty("--accent",color);
+  card.style.setProperty("--accent",color);
   document.getElementById("nmTheme").style.color=color;
-  document.getElementById("nmBody").value=n.text||"";
+  const b=document.getElementById("nmBody"); b.value=n.text||""; b.style.fontSize=nmFontPx+"px";
   document.getElementById("nmThemebar").hidden=true;
   document.getElementById("nmDel").textContent="×";
   updateNmPin();
   modal.hidden=false;
-  setTimeout(()=>{ document.getElementById("nmBody").focus(); },60);
+  setTimeout(()=>{ b.focus(); },60);
 }
 function closeNoteFullscreen(){ document.getElementById("noteModal").hidden=true; nmNote=null; refresh(); }
 function updateNmPin(){ const b=document.getElementById("nmPin"); if(nmNote)b.textContent=nmNote.pinned?"📌":"📍"; }
@@ -824,7 +830,7 @@ function buildNmThemebar(){
   const tb=document.getElementById("nmThemebar"); tb.innerHTML="";
   state.themes.forEach(t=>{ const sw=document.createElement("div"); sw.className="sw"+(nmNote&&t.id===nmNote.themeId?" on":"");
     sw.innerHTML='<span class="d" style="background:'+t.color+'"></span>'+esc(t.name);
-    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const c=t.color; const m=document.getElementById("noteModal"); m.style.setProperty("--accent",c); document.getElementById("nmTheme").style.color=c; tb.hidden=true; });
+    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const c=t.color; document.querySelector("#noteModal .nm-card").style.setProperty("--accent",c); document.getElementById("nmTheme").style.color=c; tb.hidden=true; });
     tb.appendChild(sw); });
 }
 document.getElementById("nmClose").addEventListener("click",closeNoteFullscreen);
@@ -832,6 +838,13 @@ document.getElementById("nmBody").addEventListener("input",e=>{ if(nmNote){ nmNo
 document.getElementById("nmPin").addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.pinned=!nmNote.pinned; save(); updateNmPin(); });
 document.getElementById("nmDel").addEventListener("click",()=>{ if(!nmNote)return; if(!nmDelArmed){ nmDelArmed=true; document.getElementById("nmDel").textContent="もう一度で削除"; toast("もう一度押すと削除"); setTimeout(()=>{ nmDelArmed=false; const d=document.getElementById("nmDel"); if(d)d.textContent="×"; },2500); return; } const n=nmNote; closeNoteFullscreen(); deleteNote(n); });
 document.getElementById("nmTheme").addEventListener("click",()=>{ const tb=document.getElementById("nmThemebar"); if(tb.hidden){ buildNmThemebar(); tb.hidden=false; } else tb.hidden=true; });
+document.getElementById("noteModal").addEventListener("click",e=>{ if(e.target.id==="noteModal") closeNoteFullscreen(); }); // 背景タップで閉じる
+// 二本指ピンチで本文の文字サイズを拡大／縮小
+(function(){ const b=document.getElementById("nmBody"); const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+  b.addEventListener("touchstart",e=>{ if(e.touches.length===2){ _nmPinch={d:dist(e.touches)||1,base:nmFontPx}; } },{passive:false});
+  b.addEventListener("touchmove",e=>{ if(e.touches.length===2&&_nmPinch){ e.preventDefault(); let f=_nmPinch.base*(dist(e.touches)/_nmPinch.d); f=Math.max(13,Math.min(46,f)); nmFontPx=Math.round(f); b.style.fontSize=nmFontPx+"px"; } },{passive:false});
+  b.addEventListener("touchend",e=>{ if(e.touches.length<2)_nmPinch=null; });
+})();
 
 /* export / import */
 function doExport(){ const blob=new Blob([JSON.stringify(app,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="monogatari-ban.json"; a.click(); URL.revokeObjectURL(a.href); }
