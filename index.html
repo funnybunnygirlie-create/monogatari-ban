@@ -142,6 +142,7 @@
   .nm-body{flex:1;width:100%;min-height:110px;border:none;outline:none;background:transparent;color:var(--text);font-family:var(--sans);font-size:18px;line-height:1.7;padding:14px 16px;resize:none;overflow:auto;touch-action:pan-y;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   .sync-ui{white-space:nowrap;}
+  .sync-ui.dirty{color:#e0b877;border-color:#5a4c2e;}
 
   /* ===== スマホ対応（4a：画面固定＋ツールバー畳み） ===== */
   html,body{overscroll-behavior:none;}
@@ -231,8 +232,8 @@ function setpos(n,pk,x,y){ if(pk==="sh"){n.sx=x;n.sy=y;}else{n.x=x;n.y=y;} }
 
 /* ---- persistence ---- */
 let saveTimer=null;
-function save(){ if(hasStore){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{try{localStorage.setItem(LS_KEY,JSON.stringify(app));}catch(e){}},300); } schedulePush(); }
-function flushSave(){ clearTimeout(saveTimer); if(hasStore){try{localStorage.setItem(LS_KEY,JSON.stringify(app));}catch(e){}} toast("保存しました"); if(signedIn){ clearTimeout(driveSaveTimer); pushNow(); } }
+function save(){ if(hasStore){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{try{localStorage.setItem(LS_KEY,JSON.stringify(app));}catch(e){}},300); } markDirty(); }
+function flushSave(){ clearTimeout(saveTimer); if(hasStore){try{localStorage.setItem(LS_KEY,JSON.stringify(app));}catch(e){}} if(signedIn){ saveToDrive(); } else { toast("保存しました（この端末のみ）"); } }
 async function loadApp(){
   if(hasStore){
     try{const r=localStorage.getItem(LS_KEY); if(r){const a=JSON.parse(r); if(a&&a.boards)return a;}}catch(e){}
@@ -243,16 +244,30 @@ async function loadApp(){
 
 /* ================= Google Drive 同期 ================= */
 let gToken=null, gTokenExp=0, gTokenClient=null, _tokenCb=null, _tokenErr=null;
-let signedIn=false, driveFileId=null, driveSaveTimer=null;
-let syncState="signedout"; // signedout | syncing | synced | offline | reauth
-const SYNC_LABEL={signedout:"☁ ログイン",syncing:"☁ 同期中…",synced:"☁ 同期済み",offline:"☁ オフライン",reauth:"☁ 再ログイン"};
+let signedIn=false, driveFileId=null;
+let syncState="idle"; // idle | syncing | offline | reauth | signedout
+let baseRev=0;   // この端末が最後にDriveと合わせた版番号
+let dirty=false; // Driveへ未保存の変更があるか
+const SYNC_LABEL={signedout:"☁ ログイン",syncing:"☁ 通信中…",saved:"☁ 保存済み",dirty:"● 未保存",offline:"☁ オフライン",reauth:"☁ 再ログイン"};
 
 function lsGet(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
 function lsSet(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
 function lsDel(k){ try{localStorage.removeItem(k);}catch(e){} }
+function revOf(o){ return (o&&typeof o.rev==="number")?o.rev:0; }
 
 function setSync(s){ syncState=s; updateSyncUI(); }
-function updateSyncUI(){ const label=SYNC_LABEL[syncState]||SYNC_LABEL.signedout; document.querySelectorAll(".sync-ui").forEach(b=>{ b.textContent=label; b.title="Googleドライブ同期"; }); }
+function markDirty(){ if(!dirty){ dirty=true; lsSet("novelboard_dirty","1"); } updateSyncUI(); }
+function clearDirty(){ dirty=false; lsSet("novelboard_dirty","0"); updateSyncUI(); }
+function setBaseRev(r){ baseRev=r||0; lsSet("novelboard_baserev",String(baseRev)); }
+function updateSyncUI(){
+  let label;
+  if(!signedIn){ label=(lsGet("novelboard_signedin")==="1")?SYNC_LABEL.reauth:SYNC_LABEL.signedout; }
+  else if(syncState==="syncing") label=SYNC_LABEL.syncing;
+  else if(syncState==="offline") label=SYNC_LABEL.offline;
+  else if(syncState==="reauth") label=SYNC_LABEL.reauth;
+  else label=dirty?SYNC_LABEL.dirty:SYNC_LABEL.saved;
+  document.querySelectorAll(".sync-ui").forEach(b=>{ b.textContent=label; b.title="Googleドライブ保存"; b.classList.toggle("dirty", signedIn&&dirty&&syncState!=="syncing"); });
+}
 
 function waitForGIS(ms){ return new Promise((res,rej)=>{ const t0=Date.now(); (function chk(){ if(window.google&&google.accounts&&google.accounts.oauth2)return res(); if(Date.now()-t0>ms)return rej(new Error("gis-timeout")); setTimeout(chk,150); })(); }); }
 function ensureTokenClient(){
@@ -304,49 +319,92 @@ function applyRemote(remote){
   else goHome();
   return true;
 }
-async function syncPullOrPush(){
+/* 起動時：Driveの最新を取り込む（未保存の変更があるときだけ競合確認） */
+async function pullOnStart(){
   let file=driveFileId?{id:driveFileId}:await driveFindFile();
-  if(file){ driveFileId=file.id; lsSet("novelboard_drivefileid",file.id);
-    const remote=await driveDownload(file.id);
-    if(!applyRemote(remote)) await driveUpload(file.id,app);
-  } else { driveFileId=await driveCreateFile(app); lsSet("novelboard_drivefileid",driveFileId); }
+  if(!file){ // Driveにまだ無い → この端末の内容を初回保存
+    app.rev=(baseRev||0)+1; app.savedAt=new Date().toISOString(); lsSet(LS_KEY,JSON.stringify(app));
+    driveFileId=await driveCreateFile(app); lsSet("novelboard_drivefileid",driveFileId); setBaseRev(app.rev); clearDirty(); return;
+  }
+  driveFileId=file.id; lsSet("novelboard_drivefileid",file.id);
+  const remote=await driveDownload(file.id); const rRev=revOf(remote);
+  if(!dirty){ applyRemote(remote); setBaseRev(rRev); clearDirty(); return; } // 未保存が無ければ最新を取り込む
+  if(rRev<=baseRev) return;   // Driveは自分が知る版のまま → ローカルの未保存を保持
+  askConflict(remote,rRev);   // 両方が変わっている → 競合確認
+}
+/* 保存ボタン：この端末の内容をDriveへ（競合チェックつき） */
+async function saveToDrive(){
+  if(!signedIn){ toast("保存しました（この端末のみ）"); return; }
+  setSync("syncing");
+  try{
+    let file=driveFileId?{id:driveFileId}:await driveFindFile();
+    if(!file){
+      app.rev=(baseRev||0)+1; app.savedAt=new Date().toISOString(); lsSet(LS_KEY,JSON.stringify(app));
+      driveFileId=await driveCreateFile(app); lsSet("novelboard_drivefileid",driveFileId);
+      setBaseRev(app.rev); clearDirty(); setSync("idle"); toast("Driveに保存しました"); return;
+    }
+    driveFileId=file.id; lsSet("novelboard_drivefileid",file.id);
+    const remote=await driveDownload(file.id); const rRev=revOf(remote);
+    if(rRev>baseRev){ setSync("idle"); askConflict(remote,rRev); return; } // 他端末が先に更新 → 確認
+    app.rev=Math.max(revOf(app),baseRev)+1; app.savedAt=new Date().toISOString(); lsSet(LS_KEY,JSON.stringify(app));
+    await driveUpload(file.id,app);
+    setBaseRev(app.rev); clearDirty(); setSync("idle"); toast("Driveに保存しました");
+  }catch(e){ setSync(navigator.onLine?"reauth":"offline"); toast("Driveに保存できませんでした"); }
+}
+/* 最新を取り込む（手動） */
+async function pullFromDrive(){
+  if(!signedIn)return; setSync("syncing");
+  try{
+    let file=driveFileId?{id:driveFileId}:await driveFindFile();
+    if(!file){ setSync("idle"); toast("Driveにまだ保存がありません"); return; }
+    driveFileId=file.id;
+    const remote=await driveDownload(file.id); const rRev=revOf(remote);
+    if(dirty && rRev>baseRev){ setSync("idle"); askConflict(remote,rRev); return; }
+    applyRemote(remote); setBaseRev(rRev); clearDirty(); setSync("idle"); toast("Driveの最新を取り込みました");
+  }catch(e){ setSync(navigator.onLine?"reauth":"offline"); toast("取り込めませんでした"); }
+}
+/* 競合ダイアログ（古い版で上書きしそうな時に確認） */
+function askConflict(remote,rRev){
+  closePop(); const p=makePop();
+  p.style.maxWidth="330px"; p.style.left="50%"; p.style.top="50%"; p.style.transform="translate(-50%,-50%)";
+  const when=remote&&remote.savedAt?new Date(remote.savedAt).toLocaleString():"不明";
+  p.innerHTML='<h4>Driveに新しい版があります</h4><div style="padding:2px 8px 10px;color:var(--muted);font-size:12.5px;line-height:1.65;">他の端末が更新しています（更新: '+esc(when)+'）。この端末の内容で上書きすると、その更新は消えます。</div>';
+  const a=document.createElement("div"); a.className="menu-item"; a.textContent="この端末の内容で上書き保存";
+  a.addEventListener("click",async()=>{ closePop(); setSync("syncing"); try{ app.rev=rRev+1; app.savedAt=new Date().toISOString(); lsSet(LS_KEY,JSON.stringify(app)); await driveUpload(driveFileId,app); setBaseRev(app.rev); clearDirty(); setSync("idle"); toast("この端末の内容で保存しました"); }catch(e){ setSync("reauth"); toast("保存できませんでした"); } });
+  const b=document.createElement("div"); b.className="menu-item"; b.textContent="Driveの最新を取り込む（この端末の未保存は破棄）";
+  b.addEventListener("click",()=>{ closePop(); applyRemote(remote); setBaseRev(rRev); clearDirty(); setSync("idle"); toast("Driveの最新を取り込みました"); });
+  const div=document.createElement("div"); div.className="div";
+  const c=document.createElement("div"); c.className="menu-item"; c.textContent="キャンセル"; c.addEventListener("click",closePop);
+  p.appendChild(a); p.appendChild(b); p.appendChild(div); p.appendChild(c);
 }
 async function signIn(){
   setSync("syncing");
-  try{ await requestToken(false); signedIn=true; lsSet("novelboard_signedin","1"); await syncPullOrPush(); setSync("synced"); toast("Googleドライブと同期しました"); }
+  try{ await requestToken(false); signedIn=true; lsSet("novelboard_signedin","1"); await pullOnStart(); setSync("idle"); toast("Googleドライブに接続しました"); }
   catch(e){ signedIn=false; setSync(navigator.onLine?"signedout":"offline"); if(!(e&&(e.type==="popup_closed"||e.error==="popup_closed_by_user"))) toast("ログインできませんでした"); }
   updateSyncUI();
 }
 function signOut(){
   if(gToken&&window.google&&google.accounts&&google.accounts.oauth2){ try{google.accounts.oauth2.revoke(gToken);}catch(e){} }
   gToken=null; gTokenExp=0; signedIn=false; driveFileId=null; lsDel("novelboard_signedin"); lsDel("novelboard_drivefileid");
-  setSync("signedout"); toast("ログアウトしました（ローカルの内容は残ります）");
-}
-function schedulePush(){ if(!signedIn)return; setSync("syncing"); clearTimeout(driveSaveTimer); driveSaveTimer=setTimeout(pushNow,1200); }
-async function pushNow(){
-  if(!signedIn||!app)return;
-  try{
-    if(!driveFileId){ const f=await driveFindFile(); if(f){ driveFileId=f.id; await driveUpload(driveFileId,app); } else { driveFileId=await driveCreateFile(app); } lsSet("novelboard_drivefileid",driveFileId); }
-    else { await driveUpload(driveFileId,app); }
-    setSync("synced");
-  }catch(e){ setSync(navigator.onLine?"reauth":"offline"); }
+  setSync("signedout"); toast("ログアウトしました（この端末の内容は残ります）");
 }
 async function resumeSync(){
   if(lsGet("novelboard_signedin")!=="1"){ setSync("signedout"); return; }
   driveFileId=lsGet("novelboard_drivefileid")||null; setSync("syncing");
-  try{ await requestToken(true); signedIn=true; await syncPullOrPush(); setSync("synced"); }
+  try{ await requestToken(true); signedIn=true; await pullOnStart(); setSync("idle"); }
   catch(e){ signedIn=false; setSync(navigator.onLine?"reauth":"offline"); }
 }
 function onSyncClick(e){ if(signedIn)openSyncMenu(e.currentTarget); else signIn(); }
 function openSyncMenu(anchor){
   const p=popup(anchor);
-  const info=document.createElement("div"); info.className="menu-item"; info.style.color="var(--muted)"; info.style.cursor="default"; info.textContent="状態："+((SYNC_LABEL[syncState]||"").replace("☁ ","")); p.appendChild(info);
-  const now=document.createElement("div"); now.className="menu-item"; now.textContent="今すぐ同期"; now.addEventListener("click",()=>{ closePop(); setSync("syncing"); pushNow().then(()=>toast("同期しました")); }); p.appendChild(now);
+  const info=document.createElement("div"); info.className="menu-item"; info.style.color="var(--muted)"; info.style.cursor="default"; info.textContent=dirty?"未保存の変更があります":"Driveと保存済みです"; p.appendChild(info);
+  const sv=document.createElement("div"); sv.className="menu-item"; sv.textContent="Driveに保存（この端末→Drive）"; sv.addEventListener("click",()=>{ closePop(); saveToDrive(); }); p.appendChild(sv);
+  const pl=document.createElement("div"); pl.className="menu-item"; pl.textContent="最新を取り込む（Drive→この端末）"; pl.addEventListener("click",()=>{ closePop(); pullFromDrive(); }); p.appendChild(pl);
   const div=document.createElement("div"); div.className="div"; p.appendChild(div);
   const out=document.createElement("div"); out.className="menu-item danger"; out.textContent="ログアウト"; out.addEventListener("click",()=>{ closePop(); signOut(); }); p.appendChild(out);
 }
-window.addEventListener("online",()=>{ if(signedIn){ setSync("syncing"); pushNow(); } });
-window.addEventListener("offline",()=>{ setSync("offline"); });
+window.addEventListener("online",()=>{ if(signedIn) updateSyncUI(); });
+window.addEventListener("offline",()=>{ if(signedIn) setSync("offline"); });
 
 /* ---- undo / toast ---- */
 function snapshot(){ return JSON.stringify({notes:state.notes,themes:state.themes,title:state.title,links:state.links||[]}); }
@@ -845,8 +903,9 @@ function openMobileMenu(anchor){
   [["テーマを編集",()=>openThemeEditor(anchor)],["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{ const it=document.createElement("div"); it.className="menu-item"; it.textContent=l; it.addEventListener("click",()=>{ closePop(); fn(); }); p.appendChild(it); });
   p.appendChild(divEl());
   if(signedIn){
-    const st=document.createElement("div"); st.className="menu-item"; st.style.color="var(--muted)"; st.style.cursor="default"; st.textContent="状態："+((SYNC_LABEL[syncState]||"").replace("☁ ","")); p.appendChild(st);
-    const now=document.createElement("div"); now.className="menu-item"; now.textContent="今すぐ同期"; now.addEventListener("click",()=>{ closePop(); setSync("syncing"); pushNow().then(()=>toast("同期しました")); }); p.appendChild(now);
+    const st=document.createElement("div"); st.className="menu-item"; st.style.color="var(--muted)"; st.style.cursor="default"; st.textContent=dirty?"状態：未保存の変更あり":"状態：Driveと保存済み"; p.appendChild(st);
+    const sv=document.createElement("div"); sv.className="menu-item"; sv.textContent="Driveに保存（この端末→Drive）"; sv.addEventListener("click",()=>{ closePop(); saveToDrive(); }); p.appendChild(sv);
+    const pl=document.createElement("div"); pl.className="menu-item"; pl.textContent="最新を取り込む（Drive→この端末）"; pl.addEventListener("click",()=>{ closePop(); pullFromDrive(); }); p.appendChild(pl);
     const out=document.createElement("div"); out.className="menu-item danger"; out.textContent="ログアウト"; out.addEventListener("click",()=>{ closePop(); signOut(); }); p.appendChild(out);
   }else{
     const login=document.createElement("div"); login.className="menu-item"; login.textContent="☁ Googleでログイン"; login.addEventListener("click",()=>{ closePop(); signIn(); }); p.appendChild(login);
@@ -902,7 +961,9 @@ document.querySelectorAll(".sync-ui").forEach(b=>b.addEventListener("click",onSy
 attachPinchZoom(stageEl,()=>boardEl); // 通常画面：ピンチでボードを拡大縮小
 (async function(){
   app=await loadApp(); if(!app)app={boards:[sampleBoard()]};
-  syncState=(lsGet("novelboard_signedin")==="1")?"syncing":"signedout";
+  baseRev=parseInt(lsGet("novelboard_baserev")||"0",10)||0;
+  dirty=(lsGet("novelboard_dirty")==="1");
+  syncState=(lsGet("novelboard_signedin")==="1")?"syncing":"idle";
   goHome(); updateSyncUI();
   resumeSync();
 })();
