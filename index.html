@@ -158,6 +158,8 @@
     .home-head{padding:14px 16px;}
     .pop{max-width:calc(100vw - 24px);}
     #board{min-width:0;min-height:0;} /* 縮小表示のためパーセント最小サイズを無効化 */
+    #split{grid-template-columns:1fr;} /* シャッフルは1画面（全画面の別画面） */
+    .pane .sboard{min-width:0;min-height:0;}
   }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -687,6 +689,7 @@ function ensureScatter(){ const miss=state.notes.filter(n=>n.sx==null||n.sy==nul
 
 function renderShuffle(){
   ensureScatter();
+  if(isMobileView()){ renderShuffleMobile(); return; }
   const prev=splitEl.querySelectorAll(".pane"); const sc={l:prev[0]?prev[0].scrollTop:0, ll:prev[0]?prev[0].scrollLeft:0, r:prev[1]?prev[1].scrollTop:0, rl:prev[1]?prev[1].scrollLeft:0};
   splitEl.innerHTML="";
 
@@ -706,6 +709,25 @@ function renderShuffle(){
   bRe.addEventListener("click",()=>{ pushUndo(snapshot()); reshuffle(); save(); renderInto(rb,"sh"); toast("混ぜ直しました"); });
 
   requestAnimationFrame(()=>{ if(left){left.scrollTop=sc.l;left.scrollLeft=sc.ll;} if(right){right.scrollTop=sc.r;right.scrollLeft=sc.rl;} });
+}
+/* スマホ：シャッフルは全画面の別画面（2分割をやめる） */
+function renderShuffleMobile(){
+  splitEl.innerHTML="";
+  const pane=document.createElement("div"); pane.className="pane";
+  const head=document.createElement("div"); head.className="pane-head";
+  const back=document.createElement("button"); back.className="icnbtn ghost"; back.textContent="‹ 通常"; back.title="メインに戻る";
+  const lbl=document.createElement("span"); lbl.className="lbl"; lbl.textContent="シャッフル";
+  const sub=document.createElement("span"); sub.className="sub"; sub.textContent="自由に試す";
+  const sp=document.createElement("span"); sp.className="spacer";
+  const bRe=document.createElement("button"); bRe.className="icnbtn"; bRe.textContent="混ぜ直す";
+  head.appendChild(back); head.appendChild(lbl); head.appendChild(sub); head.appendChild(sp); head.appendChild(bRe);
+  pane.appendChild(head);
+  const rb=document.createElement("div"); rb.className="sboard"; pane.appendChild(rb); splitEl.appendChild(pane);
+  curMainBoard=null; curShBoard=rb;
+  renderInto(rb,"sh","付箋を長めにタップ→ドラッグで移動。追加は ☰ から。");
+  rb.style.zoom=computeBoardZoom();
+  back.addEventListener("click",()=>setMode("normal"));
+  bRe.addEventListener("click",()=>{ pushUndo(snapshot()); reshuffle(); save(); renderInto(rb,"sh"); rb.style.zoom=computeBoardZoom(); toast("混ぜ直しました"); });
 }
 function setMode(m){ mode=m; if(m==="shuffle")ensureScatter(); render(); }
 document.querySelectorAll("#modeToggle button").forEach(b=>b.addEventListener("click",()=>setMode(b.dataset.mode)));
