@@ -65,24 +65,32 @@
   #stage{position:absolute;inset:52px 0 0 0;overflow:auto;display:none;}
   #board{position:relative;min-height:100%;min-width:100%;}
   .board-hint{position:absolute;top:16px;left:20px;color:var(--muted-2);font-size:12.5px;pointer-events:none;}
-  .note{position:absolute;width:210px;height:118px;background:var(--card);border:1px solid var(--line);border-radius:10px;border-left:4px solid var(--accent,#888);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow);transition:box-shadow .12s,border-color .12s;}
+  .note{position:absolute;width:210px;height:auto;min-height:60px;max-height:440px;background:var(--card);border:1px solid var(--line);border-radius:10px;border-left:4px solid var(--accent,#888);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow);transition:box-shadow .12s,border-color .12s;}
   .note:hover{border-color:#45454f;}
   .note.pinned{border-left-width:6px;border-color:#484853;}
   .note.dragging{z-index:60;box-shadow:0 14px 30px rgba(0,0,0,.5);transition:none;}
+  .note .rz{position:absolute;top:6px;bottom:6px;right:0;width:10px;cursor:ew-resize;z-index:6;}
+  .note .rz:hover{background:linear-gradient(to left,rgba(255,255,255,.14),transparent);}
   .note-head{display:flex;align-items:center;gap:2px;height:26px;padding:0 4px 0 8px;cursor:grab;touch-action:none;flex:none;border-bottom:1px solid rgba(255,255,255,.03);}
   .note-head:active{cursor:grabbing;}
-  .note-head .dot{width:12px;height:12px;border-radius:50%;border:none;background:var(--accent,#888);padding:0;box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;}
+  .note-head .dot{width:12px;height:12px;border-radius:50%;border:none;background:var(--accent,#888);padding:0;box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;flex:none;}
   .note-head .spacer{flex:1;}
   .note-head .icn{background:none;border:none;color:var(--muted-2);padding:2px 5px;font-size:12px;line-height:1;border-radius:5px;}
   .note-head .icn:hover{background:rgba(255,255,255,.07);color:var(--text);}
   .note-head .pin.on{color:var(--accent);}
+  .stars{display:inline-flex;gap:1px;margin-left:3px;flex:none;}
+  .stars .star{background:none;border:none;padding:0 1px;font-size:11px;line-height:1;color:var(--muted-2);cursor:pointer;}
+  .stars .star.on{color:#e0c063;}
+  .stars .star:hover{color:#e0c063;}
+  .nm-head .nm-stars{display:inline-flex;margin-left:8px;}
+  .nm-head .nm-stars .star{font-size:20px;padding:2px 3px;}
   .note.link-target{outline:2px solid var(--accent);outline-offset:2px;}
   svg.links{position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:4;}
   svg.links path.wire{fill:none;stroke:#9a9aa4;stroke-width:2;}
   svg.links path.hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;}
   svg.links.linking path.hit{pointer-events:none;}
   svg.links path.temp{fill:none;stroke:#9a9aa4;stroke-width:2;stroke-dasharray:5 4;pointer-events:none;}
-  .note-body{flex:1;padding:7px 10px 9px;font-size:13.5px;line-height:1.55;color:var(--text);overflow:hidden;outline:none;word-break:break-word;}
+  .note-body{flex:1 1 auto;padding:7px 10px 9px;font-size:13.5px;line-height:1.55;color:var(--text);overflow:hidden;outline:none;word-break:break-word;white-space:pre-wrap;}
   .note-body:focus{overflow:auto;background:rgba(255,255,255,.02);}
   .note-body:empty::before{content:"付箋の内容…";color:var(--muted-2);}
   .note.flash{animation:flash 1.1s ease;}
@@ -189,6 +197,7 @@
     <div class="nm-card">
       <div class="nm-head">
         <button class="nm-dot" id="nmDot" title="テーマを変更"></button>
+        <span class="nm-stars" id="nmStars"></span>
         <span class="nm-spacer"></span>
         <button class="nm-ico nm-pin" id="nmPin" title="固定">📍</button>
         <button class="nm-ico nm-del" id="nmDel" title="削除">×</button>
@@ -430,7 +439,7 @@ function sampleBoard(){
 function normalizeBoard(b){
   b.id=b.id||rid("b"); b.title=b.title||"無題のボード";
   b.themes=(b.themes&&b.themes.length)?b.themes:starterThemes(); b.nextId=b.nextId||1; b.spawn=b.spawn||0; b.links=b.links||[];
-  b.notes=(b.notes||[]).map((n,i)=>{ if(!n.x&&!n.y){n.x=30+(i%4)*235;n.y=30+Math.floor(i/4)*150;} return {id:n.id||(b.nextId++).toString(),text:n.text||"",themeId:(b.themes.find(t=>t.id===n.themeId)?n.themeId:b.themes[0].id),pinned:!!n.pinned,x:n.x,y:n.y,sx:n.sx,sy:n.sy,srot:n.srot}; });
+  b.notes=(b.notes||[]).map((n,i)=>{ if(!n.x&&!n.y){n.x=30+(i%4)*235;n.y=30+Math.floor(i/4)*150;} return {id:n.id||(b.nextId++).toString(),text:n.text||"",themeId:(b.themes.find(t=>t.id===n.themeId)?n.themeId:b.themes[0].id),pinned:!!n.pinned,x:n.x,y:n.y,sx:n.sx,sy:n.sy,srot:n.srot,w:n.w,stars:n.stars||0}; });
   return b;
 }
 
@@ -537,14 +546,32 @@ function noteEl(n, pk){
     body.contentEditable="false";
     attachMobileNote(el,n,pk);
   }else{
-    body.addEventListener("input",()=>{ n.text=body.innerText; save(); });
+    el.querySelector(".dot").after(makeStars(n,()=>refresh())); // 重要度★（PCはヘッダーに表示）
+    body.addEventListener("input",()=>{ n.text=body.innerText; save(); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } });
     body.addEventListener("paste",e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData("text"); document.execCommand("insertText",false,t); });
     el.querySelector(".note-head").addEventListener("pointerdown",e=>{ if(e.button&&e.button!==0)return; if(e.target.closest("button"))return; startDrag(e,n,el,pk); });
     el.addEventListener("contextmenu",e=>{ e.preventDefault(); openNoteMenu(n,e.clientX,e.clientY); });
     let lp; el.addEventListener("touchstart",e=>{ lp=setTimeout(()=>{const t=e.touches[0]; if(t)openNoteMenu(n,t.clientX,t.clientY);},500); },{passive:true});
     el.addEventListener("touchend",()=>clearTimeout(lp)); el.addEventListener("touchmove",()=>clearTimeout(lp));
+    const rz=document.createElement("div"); rz.className="rz"; rz.title="幅を変える"; rz.addEventListener("pointerdown",e=>startResize(e,n,el,pk)); el.appendChild(rz);
   }
   return el;
+}
+function makeStars(n,onchange){
+  const wrap=document.createElement("span"); wrap.className="stars";
+  for(let i=1;i<=3;i++){ const b=document.createElement("button"); b.className="star"+((n.stars||0)>=i?" on":""); b.textContent=(n.stars||0)>=i?"★":"☆"; b.title="重要度 ★"+i;
+    b.addEventListener("click",e=>{ e.stopPropagation(); const cur=n.stars||0, nv=(cur===i)?i-1:i; pushUndo(snapshot()); n.stars=nv; save(); if(onchange)onchange(); });
+    wrap.appendChild(b); }
+  return wrap;
+}
+function startResize(e,n,el,pk){
+  if(e.button&&e.button!==0)return;
+  e.preventDefault(); e.stopPropagation();
+  const before=snapshot(), sx=e.clientX, ow=el.offsetWidth;
+  try{el.setPointerCapture(e.pointerId);}catch(_){}
+  function mv(ev){ const w=Math.max(150,Math.min(560, ow+(ev.clientX-sx))); n.w=Math.round(w); el.style.width=n.w+"px"; noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
+  function up(){ document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; pushUndo(before); save(); growBoard(pk); }
+  document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
 }
 /* スマホ：付箋全体で「タップ=全画面編集 / ドラッグ=移動」を判定 */
 function attachMobileNote(el,n,pk){
@@ -592,15 +619,19 @@ function startDrag(e,n,el,pk){
   }
   document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
 }
-function sizeBoard(div,pk){ let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,px(n,pk)+L.W+40); h=Math.max(h,py(n,pk)+L.H+40); }); div.style.width=w+"px"; div.style.height=h+"px"; }
+const noteSizes={}; // id -> {w,h}（描画後に実測。矢印・盤サイズ計算で使う）
+function nW(n){ const s=noteSizes[n.id]; return (s&&s.w)||(n.w||L.W); }
+function nH(n){ const s=noteSizes[n.id]; return (s&&s.h)||L.H; }
+function sizeBoard(div,pk){ let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,px(n,pk)+nW(n)+40); h=Math.max(h,py(n,pk)+nH(n)+40); }); div.style.width=w+"px"; div.style.height=h+"px"; }
 function growBoard(pk){ const div=pk==="sh"?curShBoard:curMainBoard; if(div)sizeBoard(div,pk); }
 
 function renderInto(div,pk,hintText){
+  div.style.zoom=""; // 実測は等倍で（ズームは呼び出し側で後掛け）
   div.innerHTML="";
   let svg=null;
   if(pk==="main"){ svg=makeArrowSvg(); div.appendChild(svg); }
   if(!state.notes.length && hintText){ const h=document.createElement("div"); h.className="board-hint"; h.textContent=hintText; div.appendChild(h); }
-  state.notes.forEach(n=>{ const el=noteEl(n,pk); el.style.left=px(n,pk)+"px"; el.style.top=py(n,pk)+"px"; if(pk==="sh"&&n.srot)el.style.transform="rotate("+n.srot+"deg)"; div.appendChild(el); });
+  state.notes.forEach(n=>{ const el=noteEl(n,pk); el.style.left=px(n,pk)+"px"; el.style.top=py(n,pk)+"px"; if(n.w)el.style.width=n.w+"px"; if(pk==="sh"&&n.srot)el.style.transform="rotate("+n.srot+"deg)"; div.appendChild(el); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; });
   sizeBoard(div,pk);
   if(svg) drawLinks(svg,pk);
 }
@@ -673,23 +704,23 @@ function colorMarker(defs,id,color){
   marker.appendChild(mp); defs.appendChild(marker);
 }
 function anchor(n,pk,toward){
-  const x=px(n,pk),y=py(n,pk),cx=x+L.W/2,cy=y+L.H/2, dx=toward.x-cx, dy=toward.y-cy;
-  if(Math.abs(dx)>=Math.abs(dy)) return dx>=0?{x:x+L.W,y:cy,nx:1,ny:0}:{x:x,y:cy,nx:-1,ny:0};
-  return dy>=0?{x:cx,y:y+L.H,nx:0,ny:1}:{x:cx,y:y,nx:0,ny:-1};
+  const w=nW(n),h=nH(n), x=px(n,pk),y=py(n,pk),cx=x+w/2,cy=y+h/2, dx=toward.x-cx, dy=toward.y-cy;
+  if(Math.abs(dx)>=Math.abs(dy)) return dx>=0?{x:x+w,y:cy,nx:1,ny:0}:{x:x,y:cy,nx:-1,ny:0};
+  return dy>=0?{x:cx,y:y+h,nx:0,ny:1}:{x:cx,y:y,nx:0,ny:-1};
 }
 function bez(A,c1,c2,B,t){ const m=1-t; return {x:m*m*m*A.x+3*m*m*t*c1.x+3*m*t*t*c2.x+t*t*t*B.x, y:m*m*m*A.y+3*m*m*t*c1.y+3*m*t*t*c2.y+t*t*t*B.y}; }
 function curveCollisions(A,c1,c2,B,obst){
   let c=0; const pad=14;
   for(let i=1;i<=18;i++){ const p=bez(A,c1,c2,B,i/19);
-    for(const o of obst){ if(p.x>o.x-pad&&p.x<o.x+L.W+pad&&p.y>o.y-pad&&p.y<o.y+L.H+pad){ c++; break; } } }
+    for(const o of obst){ if(p.x>o.x-pad&&p.x<o.x+o.w+pad&&p.y>o.y-pad&&p.y<o.y+o.h+pad){ c++; break; } } }
   return c;
 }
 function pathFor(a,b,pk){
-  const ca={x:px(a,pk)+L.W/2,y:py(a,pk)+L.H/2}, cb={x:px(b,pk)+L.W/2,y:py(b,pk)+L.H/2};
+  const ca={x:px(a,pk)+nW(a)/2,y:py(a,pk)+nH(a)/2}, cb={x:px(b,pk)+nW(b)/2,y:py(b,pk)+nH(b)/2};
   const A=anchor(a,pk,cb), B=anchor(b,pk,ca);
   const base=Math.max(45,Math.min(150,Math.hypot(B.x-A.x,B.y-A.y)*0.45));
   const dx=B.x-A.x, dy=B.y-A.y, len=Math.hypot(dx,dy)||1, perpx=-dy/len, perpy=dx/len;
-  const obst=state.notes.filter(n=>n.id!==a.id&&n.id!==b.id).map(n=>({x:px(n,pk),y:py(n,pk)}));
+  const obst=state.notes.filter(n=>n.id!==a.id&&n.id!==b.id).map(n=>({x:px(n,pk),y:py(n,pk),w:nW(n),h:nH(n)}));
   const cands=[0,55,-55,110,-110,170,-170,240,-240,320,-320];
   let best=null;
   for(const off of cands){
@@ -924,10 +955,12 @@ function openNoteFullscreen(n){
   const b=document.getElementById("nmBody"); b.value=n.text||""; b.style.fontSize=nmFontPx+"px";
   document.getElementById("nmThemebar").hidden=true;
   const d=document.getElementById("nmDel"); d.textContent="×"; d.classList.remove("armed");
+  fillNmStars(n);
   updateNmPin();
   modal.hidden=false;
   setTimeout(()=>{ b.focus(); },60);
 }
+function fillNmStars(n){ const sc=document.getElementById("nmStars"); if(!sc)return; sc.innerHTML=""; sc.appendChild(makeStars(n,()=>fillNmStars(n))); }
 function closeNoteFullscreen(){ document.getElementById("noteModal").hidden=true; nmNote=null; refresh(); }
 function updateNmPin(){ const b=document.getElementById("nmPin"); if(nmNote)b.textContent=nmNote.pinned?"📌":"📍"; }
 function buildNmThemebar(){
