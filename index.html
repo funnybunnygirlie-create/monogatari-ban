@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>物語盤 — 付箋ボード</title>
 <style>
   :root{
@@ -121,6 +121,22 @@
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   .sync-ui{white-space:nowrap;}
+
+  /* ===== スマホ対応（4a：画面固定＋ツールバー畳み） ===== */
+  html,body{overscroll-behavior:none;}
+  .only-mobile{display:none!important;}
+  @media (max-width:720px){
+    .only-mobile{display:inline-flex!important;}
+    #bar{gap:6px;padding:6px 8px;flex-wrap:nowrap;overflow:hidden;}
+    #themebar{display:none;}
+    #bar #undoBtn,#bar #saveBtn,#bar #menuBtn,#bar #syncBar{display:none;}
+    #boardTitle{flex:1;min-width:0;max-width:none;font-size:15px;}
+    .mode-toggle button{padding:6px 9px;}
+    #stage,.pane{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+    .home-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:16px 16px 60px;}
+    .home-head{padding:14px 16px;}
+    .pop{max-width:calc(100vw - 24px);}
+  }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -132,6 +148,7 @@
 
   <div id="bar">
     <button class="icnbtn ghost" id="toHome">‹ 一覧</button>
+    <button class="icnbtn ghost only-mobile" id="hamburger" title="メニュー">☰</button>
     <input id="boardTitle" value="">
     <div class="sep"></div>
     <div id="themebar"></div>
@@ -664,6 +681,37 @@ function openSwatch(t,anchor){ const p=popup(anchor); const wrap=document.create
 
 document.getElementById("menuBtn").addEventListener("click",e=>{ const p=popup(e.currentTarget);
   [["テーマを編集",()=>openThemeEditor(e.currentTarget)],["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{const it=document.createElement("div");it.className="menu-item";it.textContent=l;it.addEventListener("click",()=>{closePop();fn();});p.appendChild(it);}); });
+
+/* ---- スマホ用 ☰ メニュー（畳んだツールバーの中身をまとめる） ---- */
+function divEl(){ const d=document.createElement("div"); d.className="div"; return d; }
+function openMobileMenu(anchor){
+  const p=popup(anchor); p.style.minWidth="240px";
+  const h1=document.createElement("h4"); h1.textContent="付箋を追加"; p.appendChild(h1);
+  state.themes.forEach(t=>{
+    const row=document.createElement("div"); row.className="row";
+    row.innerHTML='<span class="rdot" style="background:'+t.color+'"></span><span class="rtxt">'+esc(t.name)+'</span>';
+    row.addEventListener("click",()=>{ closePop(); addNoteOfTheme(t.id); });
+    p.appendChild(row);
+  });
+  const addT=document.createElement("div"); addT.className="menu-item"; addT.textContent="＋ 新しいテーマ";
+  addT.addEventListener("click",()=>{ const used=state.themes.map(t=>t.color); const color=PALETTE.find(c=>!used.includes(c))||PALETTE[state.themes.length%PALETTE.length]; state.themes.push({id:rid("t"),name:"新テーマ",color}); save(); closePop(); refresh(); });
+  p.appendChild(addT);
+  p.appendChild(divEl());
+  const undo=document.createElement("div"); undo.className="menu-item"; undo.textContent="↶ 元に戻す"; if(!undoStack.length)undo.style.opacity=".4";
+  undo.addEventListener("click",()=>{ closePop(); doUndo(); }); p.appendChild(undo);
+  const sv=document.createElement("div"); sv.className="menu-item"; sv.textContent="保存"; sv.addEventListener("click",()=>{ closePop(); flushSave(); }); p.appendChild(sv);
+  p.appendChild(divEl());
+  [["テーマを編集",()=>openThemeEditor(anchor)],["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{ const it=document.createElement("div"); it.className="menu-item"; it.textContent=l; it.addEventListener("click",()=>{ closePop(); fn(); }); p.appendChild(it); });
+  p.appendChild(divEl());
+  if(signedIn){
+    const st=document.createElement("div"); st.className="menu-item"; st.style.color="var(--muted)"; st.style.cursor="default"; st.textContent="状態："+((SYNC_LABEL[syncState]||"").replace("☁ ","")); p.appendChild(st);
+    const now=document.createElement("div"); now.className="menu-item"; now.textContent="今すぐ同期"; now.addEventListener("click",()=>{ closePop(); setSync("syncing"); pushNow().then(()=>toast("同期しました")); }); p.appendChild(now);
+    const out=document.createElement("div"); out.className="menu-item danger"; out.textContent="ログアウト"; out.addEventListener("click",()=>{ closePop(); signOut(); }); p.appendChild(out);
+  }else{
+    const login=document.createElement("div"); login.className="menu-item"; login.textContent="☁ Googleでログイン"; login.addEventListener("click",()=>{ closePop(); signIn(); }); p.appendChild(login);
+  }
+}
+document.getElementById("hamburger").addEventListener("click",e=>openMobileMenu(e.currentTarget));
 
 /* export / import */
 function doExport(){ const blob=new Blob([JSON.stringify(app,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="monogatari-ban.json"; a.click(); URL.revokeObjectURL(a.href); }
