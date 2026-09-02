@@ -123,20 +123,23 @@
   #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);background:#2b2b34;border:1px solid var(--line);color:var(--text);padding:8px 16px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.4);}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-  /* 付箋の拡大ポップアップ（スマホ） */
-  #noteModal{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(8,8,12,.5);padding:18px;animation:nmFade .16s ease;}
+  /* 付箋の拡大ポップアップ（スマホ）＝付箋の形のまま大きく */
+  #noteModal{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(8,8,12,.5);padding:22px;animation:nmFade .16s ease;}
   #noteModal[hidden]{display:none;}
   @keyframes nmFade{from{opacity:0;}to{opacity:1;}}
-  .nm-card{display:flex;flex-direction:column;width:min(560px,94vw);max-height:82vh;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent,#888);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden;animation:nmIn .16s ease;}
-  @keyframes nmIn{from{opacity:0;transform:scale(.92);}to{opacity:1;transform:scale(1);}}
-  .nm-head{display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--line);}
+  .nm-card{display:flex;flex-direction:column;width:min(420px,82vw);max-height:70vh;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--accent,#888);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden;animation:nmIn .16s ease;}
+  @keyframes nmIn{from{opacity:0;transform:scale(.9);}to{opacity:1;transform:scale(1);}}
+  .nm-head{display:flex;align-items:center;gap:4px;height:40px;padding:0 8px 0 12px;border-bottom:1px solid rgba(255,255,255,.04);flex:none;}
+  .nm-head .nm-dot{width:18px;height:18px;border-radius:50%;border:none;padding:0;background:var(--accent,#888);box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;cursor:pointer;}
   .nm-head .nm-spacer{flex:1;}
-  .nm-head .icnbtn{font-size:16px;}
+  .nm-head .nm-ico{background:none;border:none;color:var(--muted-2);font-size:18px;padding:6px 10px;border-radius:7px;line-height:1;}
+  .nm-head .nm-ico:hover{background:rgba(255,255,255,.07);color:var(--text);}
+  .nm-head .nm-del.armed{color:#e6a6a6;background:#3a2626;font-size:13px;}
   .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
   .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
   .nm-themebar .sw.on{border-color:var(--muted);}
   .nm-themebar .sw .d{width:13px;height:13px;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;}
-  .nm-body{flex:1;width:100%;min-height:160px;border:none;outline:none;background:transparent;color:var(--text);font-family:var(--sans);font-size:18px;line-height:1.7;padding:16px 18px;resize:none;overflow:auto;touch-action:pan-y;}
+  .nm-body{flex:1;width:100%;min-height:110px;border:none;outline:none;background:transparent;color:var(--text);font-family:var(--sans);font-size:18px;line-height:1.7;padding:14px 16px;resize:none;overflow:auto;touch-action:pan-y;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   .sync-ui{white-space:nowrap;}
 
@@ -182,11 +185,10 @@
   <div id="noteModal" hidden>
     <div class="nm-card">
       <div class="nm-head">
-        <button class="icnbtn ghost" id="nmClose">閉じる</button>
+        <button class="nm-dot" id="nmDot" title="テーマを変更"></button>
         <span class="nm-spacer"></span>
-        <button class="icnbtn ghost" id="nmTheme" title="テーマを変更">●</button>
-        <button class="icnbtn ghost" id="nmPin" title="固定">📍</button>
-        <button class="icnbtn ghost" id="nmDel" title="削除">×</button>
+        <button class="nm-ico nm-pin" id="nmPin" title="固定">📍</button>
+        <button class="nm-ico nm-del" id="nmDel" title="削除">×</button>
       </div>
       <div class="nm-themebar" id="nmThemebar" hidden></div>
       <textarea class="nm-body" id="nmBody" placeholder="付箋の内容…" spellcheck="false"></textarea>
@@ -816,10 +818,9 @@ function openNoteFullscreen(n){
   const card=modal.querySelector(".nm-card");
   const th=themeById(n.themeId), color=th?th.color:"#888";
   card.style.setProperty("--accent",color);
-  document.getElementById("nmTheme").style.color=color;
   const b=document.getElementById("nmBody"); b.value=n.text||""; b.style.fontSize=nmFontPx+"px";
   document.getElementById("nmThemebar").hidden=true;
-  document.getElementById("nmDel").textContent="×";
+  const d=document.getElementById("nmDel"); d.textContent="×"; d.classList.remove("armed");
   updateNmPin();
   modal.hidden=false;
   setTimeout(()=>{ b.focus(); },60);
@@ -830,14 +831,13 @@ function buildNmThemebar(){
   const tb=document.getElementById("nmThemebar"); tb.innerHTML="";
   state.themes.forEach(t=>{ const sw=document.createElement("div"); sw.className="sw"+(nmNote&&t.id===nmNote.themeId?" on":"");
     sw.innerHTML='<span class="d" style="background:'+t.color+'"></span>'+esc(t.name);
-    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const c=t.color; document.querySelector("#noteModal .nm-card").style.setProperty("--accent",c); document.getElementById("nmTheme").style.color=c; tb.hidden=true; });
+    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); document.querySelector("#noteModal .nm-card").style.setProperty("--accent",t.color); tb.hidden=true; });
     tb.appendChild(sw); });
 }
-document.getElementById("nmClose").addEventListener("click",closeNoteFullscreen);
 document.getElementById("nmBody").addEventListener("input",e=>{ if(nmNote){ nmNote.text=e.target.value; save(); } });
 document.getElementById("nmPin").addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.pinned=!nmNote.pinned; save(); updateNmPin(); });
-document.getElementById("nmDel").addEventListener("click",()=>{ if(!nmNote)return; if(!nmDelArmed){ nmDelArmed=true; document.getElementById("nmDel").textContent="もう一度で削除"; toast("もう一度押すと削除"); setTimeout(()=>{ nmDelArmed=false; const d=document.getElementById("nmDel"); if(d)d.textContent="×"; },2500); return; } const n=nmNote; closeNoteFullscreen(); deleteNote(n); });
-document.getElementById("nmTheme").addEventListener("click",()=>{ const tb=document.getElementById("nmThemebar"); if(tb.hidden){ buildNmThemebar(); tb.hidden=false; } else tb.hidden=true; });
+document.getElementById("nmDel").addEventListener("click",()=>{ if(!nmNote)return; const d=document.getElementById("nmDel"); if(!nmDelArmed){ nmDelArmed=true; d.textContent="削除"; d.classList.add("armed"); toast("もう一度押すと削除します"); setTimeout(()=>{ nmDelArmed=false; if(d){d.textContent="×";d.classList.remove("armed");} },2500); return; } const n=nmNote; closeNoteFullscreen(); deleteNote(n); });
+document.getElementById("nmDot").addEventListener("click",()=>{ const tb=document.getElementById("nmThemebar"); if(tb.hidden){ buildNmThemebar(); tb.hidden=false; } else tb.hidden=true; });
 document.getElementById("noteModal").addEventListener("click",e=>{ if(e.target.id==="noteModal") closeNoteFullscreen(); }); // 背景タップで閉じる
 // 二本指ピンチで本文の文字サイズを拡大／縮小
 (function(){ const b=document.getElementById("nmBody"); const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
