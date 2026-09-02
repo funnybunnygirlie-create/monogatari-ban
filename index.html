@@ -125,7 +125,7 @@
   /* ===== スマホ対応（4a：画面固定＋ツールバー畳み） ===== */
   html,body{overscroll-behavior:none;}
   .only-mobile{display:none!important;}
-  @media (max-width:720px){
+  @media (max-width:720px), (max-height:520px){
     .only-mobile{display:inline-flex!important;}
     #bar{gap:6px;padding:6px 8px;flex-wrap:nowrap;overflow:hidden;}
     #themebar{display:none;}
@@ -136,6 +136,7 @@
     .home-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:16px 16px 60px;}
     .home-head{padding:14px 16px;}
     .pop{max-width:calc(100vw - 24px);}
+    #board{min-width:0;min-height:0;} /* 縮小表示のためパーセント最小サイズを無効化 */
   }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -433,8 +434,9 @@ function startDrag(e,n,el,pk){
   e.preventDefault();
   const before=(pk==="main")?snapshot():null;
   const sx=e.clientX, sy=e.clientY, oL=px(n,pk), oT=py(n,pk);
+  const z=(el.parentElement&&el.parentElement.style.zoom)?(parseFloat(el.parentElement.style.zoom)||1):1; // 縮小表示ぶんを補正
   el.classList.add("dragging"); try{el.setPointerCapture(e.pointerId);}catch(_){}
-  function mv(ev){ const nx=Math.max(0,oL+ev.clientX-sx), ny=Math.max(0,oT+ev.clientY-sy); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
+  function mv(ev){ const nx=Math.max(0,oL+(ev.clientX-sx)/z), ny=Math.max(0,oT+(ev.clientY-sy)/z); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
   function up(){
     document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); el.classList.remove("dragging");
     setpos(n,pk,Math.round(Math.max(0,parseFloat(el.style.left)||0)),Math.round(Math.max(0,parseFloat(el.style.top)||0)));
@@ -455,9 +457,18 @@ function renderInto(div,pk,hintText){
   sizeBoard(div,pk);
   if(svg) drawLinks(svg,pk);
 }
+function isMobileView(){ return window.matchMedia("(max-width:720px)").matches || window.matchMedia("(max-height:520px)").matches; }
+function computeBoardZoom(){
+  if(!isMobileView()) return 1;
+  const across = window.matchMedia("(orientation: landscape)").matches ? 5 : 3; // 縦=横3枚 / 横=横5枚
+  const w = document.documentElement.clientWidth || window.innerWidth || 375;
+  return Math.max(0.4, Math.min(1, w/(across*L.W)));
+}
+function applyBoardZoom(){ boardEl.style.zoom = isMobileView() ? computeBoardZoom() : ""; }
 function renderNormal(){
   curMainBoard=boardEl;
   renderInto(boardEl,"main","上の色をクリックで付箋を追加。ドラッグで移動、ピンで固定、右クリック（長押し）でテーマ変更・削除。");
+  applyBoardZoom();
 }
 
 /* ---- add notes ---- */
@@ -550,8 +561,9 @@ function startLink(e,src,el,pk){
   svg.classList.add("linking");
   const temp=document.createElementNS(SVGNS,"path"); temp.setAttribute("class","temp"); svg.appendChild(temp);
   let lastTarget=null;
+  const z=(board.style.zoom)?(parseFloat(board.style.zoom)||1):1;
   function mv(ev){
-    const r=board.getBoundingClientRect(); const cur={x:ev.clientX-r.left,y:ev.clientY-r.top};
+    const r=board.getBoundingClientRect(); const cur={x:(ev.clientX-r.left)/z,y:(ev.clientY-r.top)/z};
     temp.setAttribute("d",tempPath(src,pk,cur));
     const te=document.elementFromPoint(ev.clientX,ev.clientY); const t=te&&te.closest?te.closest(".note"):null;
     if(lastTarget&&lastTarget!==t)lastTarget.classList.remove("link-target");
