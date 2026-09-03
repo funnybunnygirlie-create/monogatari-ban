@@ -71,10 +71,10 @@
   .note:hover{border-color:#45454f;}
   .note.pinned{border-left-width:6px;border-color:#484853;}
   .note.dragging{z-index:60;box-shadow:0 14px 30px rgba(0,0,0,.5);transition:none;}
-  .note.held{box-shadow:0 0 0 1px rgba(255,255,255,.38), 0 0 13px 2px rgba(255,255,255,.13), var(--shadow);}
-  .note.held:hover{box-shadow:0 0 0 1px rgba(255,255,255,.52), 0 0 17px 3px rgba(255,255,255,.18), var(--shadow);}
+  .note.held{box-shadow:0 0 0 2px var(--accent,#888), 0 0 18px 4px var(--accentGlow,rgba(255,255,255,.25)), var(--shadow);}
+  .note.held:hover{box-shadow:0 0 0 2px var(--accent,#888), 0 0 24px 6px var(--accentGlow,rgba(255,255,255,.3)), var(--shadow);}
   .note-head .hold{font-size:12px;}
-  .note-head .hold.on{color:#eaeaf0;background:rgba(255,255,255,.12);}
+  .note-head .hold.on{color:var(--accent,#eaeaf0);background:rgba(255,255,255,.1);}
   .note .rz{position:absolute;top:6px;bottom:6px;right:0;width:10px;cursor:ew-resize;z-index:6;}
   .note .rz:hover{background:linear-gradient(to left,rgba(255,255,255,.14),transparent);}
   .note-head{display:flex;align-items:center;gap:2px;height:26px;padding:0 4px 0 8px;cursor:grab;touch-action:none;flex:none;border-bottom:1px solid rgba(255,255,255,.03);}
@@ -150,8 +150,8 @@
   .nm-head .nm-ico:hover{background:rgba(255,255,255,.07);color:var(--text);}
   .nm-head .nm-del.armed{color:#e6a6a6;background:#3a2626;font-size:13px;}
   .nm-head .nm-hold{font-size:17px;}
-  .nm-head .nm-hold.on{color:#eaeaf0;}
-  .nm-card.held{box-shadow:0 0 0 1.5px rgba(255,255,255,.42), 0 0 22px 4px rgba(255,255,255,.15), 0 24px 60px rgba(0,0,0,.6);}
+  .nm-head .nm-hold.on{color:var(--accent,#eaeaf0);}
+  .nm-card.held{box-shadow:0 0 0 2px var(--accent,#888), 0 0 28px 6px var(--accentGlow,rgba(255,255,255,.22)), 0 24px 60px rgba(0,0,0,.6);}
   .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
   .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
   .nm-themebar .sw.on{border-color:var(--muted);}
@@ -248,6 +248,7 @@ function shuf(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Ma
 const px=(n,pk)=>pk==="sh"?(n.sx==null?30:n.sx):(n.x==null?30:n.x);
 const py=(n,pk)=>pk==="sh"?(n.sy==null?30:n.sy):(n.y==null?30:n.y);
 function setpos(n,pk,x,y){ if(pk==="sh"){n.sx=x;n.sy=y;}else{n.x=x;n.y=y;} }
+function hexToRgba(hex,a){ hex=(hex||"#888888").replace("#",""); if(hex.length===3)hex=hex.split("").map(c=>c+c).join(""); const n=parseInt(hex,16); return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"; }
 
 /* ---- persistence ---- */
 let saveTimer=null;
@@ -541,6 +542,7 @@ function noteEl(n, pk){
   const th=themeById(n.themeId);
   const el=document.createElement("div"); el.className="note"+(n.pinned?" pinned":"")+(n.held?" held":""); el.dataset.id=n.id;
   el.style.setProperty("--accent", th?th.color:"#888");
+  el.style.setProperty("--accentGlow", hexToRgba(th?th.color:"#888", .6));
   const linkBtn = pk==="main" ? '<button class="icn link" title="ドラッグで矢印をつなぐ">⤳</button>' : '';
   el.innerHTML='<div class="note-head"><button class="dot" title="テーマを変更"></button><span class="spacer"></span>'+linkBtn+
     '<button class="icn pin'+(n.pinned?" on":"")+'" title="'+(n.pinned?"固定を外す":"固定する")+'">'+(n.pinned?"📌":"📍")+'</button>'+
@@ -1013,7 +1015,7 @@ function openNoteFullscreen(n){
   const modal=document.getElementById("noteModal");
   const card=modal.querySelector(".nm-card");
   const th=themeById(n.themeId), color=th?th.color:"#888";
-  card.style.setProperty("--accent",color);
+  card.style.setProperty("--accent",color); card.style.setProperty("--accentGlow",hexToRgba(color,.6));
   const b=document.getElementById("nmBody"); b.value=n.text||""; b.style.fontSize=nmFontPx+"px";
   document.getElementById("nmThemebar").hidden=true;
   const d=document.getElementById("nmDel"); d.textContent="×"; d.classList.remove("armed");
@@ -1030,7 +1032,7 @@ function buildNmThemebar(){
   const tb=document.getElementById("nmThemebar"); tb.innerHTML="";
   state.themes.forEach(t=>{ const sw=document.createElement("div"); sw.className="sw"+(nmNote&&t.id===nmNote.themeId?" on":"");
     sw.innerHTML='<span class="d" style="background:'+t.color+'"></span>'+esc(t.name);
-    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); document.querySelector("#noteModal .nm-card").style.setProperty("--accent",t.color); tb.hidden=true; });
+    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const cd=document.querySelector("#noteModal .nm-card"); cd.style.setProperty("--accent",t.color); cd.style.setProperty("--accentGlow",hexToRgba(t.color,.6)); tb.hidden=true; });
     tb.appendChild(sw); });
 }
 document.getElementById("nmBody").addEventListener("input",e=>{ if(nmNote){ nmNote.text=e.target.value; save(); } });
