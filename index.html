@@ -71,8 +71,8 @@
   .note:hover{border-color:#45454f;}
   .note.pinned{border-left-width:6px;border-color:#484853;}
   .note.dragging{z-index:60;box-shadow:0 14px 30px rgba(0,0,0,.5);transition:none;}
-  .note.held{box-shadow:0 0 0 2px var(--accent,#888), 0 0 18px 4px var(--accentGlow,rgba(255,255,255,.25)), var(--shadow);}
-  .note.held:hover{box-shadow:0 0 0 2px var(--accent,#888), 0 0 24px 6px var(--accentGlow,rgba(255,255,255,.3)), var(--shadow);}
+  .note.held{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 13px 2px var(--accentGlow,rgba(255,255,255,.18)), var(--shadow);}
+  .note.held:hover{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 17px 3px var(--accentGlow,rgba(255,255,255,.22)), var(--shadow);}
   .note-head .hold{font-size:12px;}
   .note-head .hold.on{color:var(--accent,#eaeaf0);background:rgba(255,255,255,.1);}
   .note .rz{position:absolute;top:6px;bottom:6px;right:0;width:10px;cursor:ew-resize;z-index:6;}
@@ -151,7 +151,7 @@
   .nm-head .nm-del.armed{color:#e6a6a6;background:#3a2626;font-size:13px;}
   .nm-head .nm-hold{font-size:17px;}
   .nm-head .nm-hold.on{color:var(--accent,#eaeaf0);}
-  .nm-card.held{box-shadow:0 0 0 2px var(--accent,#888), 0 0 28px 6px var(--accentGlow,rgba(255,255,255,.22)), 0 24px 60px rgba(0,0,0,.6);}
+  .nm-card.held{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 22px 4px var(--accentGlow,rgba(255,255,255,.18)), 0 24px 60px rgba(0,0,0,.6);}
   .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
   .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
   .nm-themebar .sw.on{border-color:var(--muted);}
@@ -168,7 +168,7 @@
     .only-mobile{display:inline-flex!important;}
     #bar{gap:6px;padding:6px 8px;flex-wrap:nowrap;overflow:hidden;}
     #themebar{display:none;}
-    #bar #undoBtn,#bar #saveBtn,#bar #menuBtn,#bar #syncBar{display:none;}
+    #bar #undoBtn,#bar #saveBtn,#bar #menuBtn,#bar #syncBar,#bar #recenterBtn{display:none;}
     #boardTitle{flex:1;min-width:0;max-width:none;font-size:15px;}
     .mode-toggle button{padding:6px 9px;}
     #stage,.pane{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
@@ -194,6 +194,7 @@
     <input id="boardTitle" value="">
     <div class="sep"></div>
     <div id="themebar"></div>
+    <button class="icnbtn ghost" id="recenterBtn" title="付箋の位置へ戻る（ズームも100%に）">⊙</button>
     <button class="icnbtn ghost" id="undoBtn" title="元に戻す">↶</button>
     <button class="icnbtn" id="saveBtn" title="今すぐ保存">保存</button>
     <div class="mode-toggle" id="modeToggle"><button data-mode="normal" class="on">通常</button><button data-mode="shuffle">シャッフル</button></div>
@@ -493,6 +494,7 @@ document.getElementById("toHome").addEventListener("click",goHome);
 titleInput.addEventListener("input",()=>{ if(state){ state.title=titleInput.value; save(); }});
 document.getElementById("undoBtn").addEventListener("click",doUndo);
 document.getElementById("saveBtn").addEventListener("click",flushSave);
+document.getElementById("recenterBtn").addEventListener("click",goToNotes);
 
 function render(){
   if(!state)return;
@@ -542,7 +544,7 @@ function noteEl(n, pk){
   const th=themeById(n.themeId);
   const el=document.createElement("div"); el.className="note"+(n.pinned?" pinned":"")+(n.held?" held":""); el.dataset.id=n.id;
   el.style.setProperty("--accent", th?th.color:"#888");
-  el.style.setProperty("--accentGlow", hexToRgba(th?th.color:"#888", .6));
+  el.style.setProperty("--accentGlow", hexToRgba(th?th.color:"#888", .42));
   const linkBtn = pk==="main" ? '<button class="icn link" title="ドラッグで矢印をつなぐ">⤳</button>' : '';
   el.innerHTML='<div class="note-head"><button class="dot" title="テーマを変更"></button><span class="spacer"></span>'+linkBtn+
     '<button class="icn pin'+(n.pinned?" on":"")+'" title="'+(n.pinned?"固定を外す":"固定する")+'">'+(n.pinned?"📌":"📍")+'</button>'+
@@ -645,6 +647,7 @@ function zoomOf(el){ const b=el&&el.closest&&el.closest("#board,.sboard"); retur
 function sizeBoard(div,pk){ const O=boardOrigin(); let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,O+px(n,pk)+nW(n)+O); h=Math.max(h,O+py(n,pk)+nH(n)+O); }); div.style.width=Math.max(w,O*2+200)+"px"; div.style.height=Math.max(h,O*2+200)+"px"; }
 function growBoard(pk){ const div=pk==="sh"?curShBoard:curMainBoard; if(div)sizeBoard(div,pk); }
 function centerBoard(){ if(mode!=="normal")return; const t=Math.max(0, ORIGIN*currentZoom()-80); stageEl.scrollLeft=t; stageEl.scrollTop=t; }
+function goToNotes(){ if(mode!=="normal")return; if(isMobileView())userBoardZoom=null; else pcZoom=1; applyBoardZoom(); centerBoard(); } // ズームを戻して付箋の位置へ
 // 中ボタン(ホイール押し込み)ドラッグで画面を自由に移動
 function attachPan(scroller){
   scroller.addEventListener("mousedown",e=>{ if(e.button===1)e.preventDefault(); }); // 中クリックのオートスクロール抑止
@@ -702,14 +705,22 @@ function attachPinchZoom(scroller, getBoard){
   let startDist=0, baseZoom=1;
   scroller.addEventListener("touchstart",e=>{
     if(!isMobileView())return;
-    if(e.touches.length>=2){ pinchActive=true; startDist=dist(e.touches)||1; baseZoom=parseFloat(getBoard().style.zoom)||computeBoardZoom(); scroller.style.overflow="hidden"; scroller.style.touchAction="none"; e.preventDefault(); }
+    if(e.touches.length>=2){ pinchActive=true; startDist=dist(e.touches)||1; baseZoom=parseFloat(getBoard().style.zoom)||computeBoardZoom(); e.preventDefault(); }
   },{passive:false});
   scroller.addEventListener("touchmove",e=>{
     if(!pinchActive)return;
-    e.preventDefault();
-    if(e.touches.length>=2){ let z=baseZoom*(dist(e.touches)/startDist); z=Math.max(0.25,Math.min(2.2,z)); userBoardZoom=z; getBoard().style.zoom=z; }
+    e.preventDefault(); // ピンチ中はスクロールさせない
+    if(e.touches.length>=2){
+      const rect=scroller.getBoundingClientRect();
+      const midX=(e.touches[0].clientX+e.touches[1].clientX)/2-rect.left, midY=(e.touches[0].clientY+e.touches[1].clientY)/2-rect.top;
+      const board=getBoard(); const old=parseFloat(board.style.zoom)||baseZoom;
+      let z=baseZoom*(dist(e.touches)/startDist); z=Math.max(0.3,Math.min(2.5,z));
+      const cxIn=scroller.scrollLeft+midX, cyIn=scroller.scrollTop+midY; // 指の中心を基準に拡大（付箋が飛ばない）
+      userBoardZoom=z; board.style.zoom=z;
+      scroller.scrollLeft=cxIn/old*z-midX; scroller.scrollTop=cyIn/old*z-midY;
+    }
   },{passive:false});
-  function end(e){ if(!pinchActive)return; if(e.touches.length===0){ pinchActive=false; scroller.style.overflow=""; scroller.style.touchAction=""; } else { e.preventDefault(); } }
+  function end(e){ if(!pinchActive)return; if(e.touches.length===0){ pinchActive=false; } else { e.preventDefault(); } }
   scroller.addEventListener("touchend",end,{passive:false});
   scroller.addEventListener("touchcancel",end,{passive:false});
 }
@@ -994,6 +1005,7 @@ function openMobileMenu(anchor){
   const undo=document.createElement("div"); undo.className="menu-item"; undo.textContent="↶ 元に戻す"; if(!undoStack.length)undo.style.opacity=".4";
   undo.addEventListener("click",()=>{ closePop(); doUndo(); }); p.appendChild(undo);
   const sv=document.createElement("div"); sv.className="menu-item"; sv.textContent="保存"; sv.addEventListener("click",()=>{ closePop(); flushSave(); }); p.appendChild(sv);
+  const rc=document.createElement("div"); rc.className="menu-item"; rc.textContent="⊙ 付箋の位置へ戻る"; rc.addEventListener("click",()=>{ closePop(); goToNotes(); }); p.appendChild(rc);
   p.appendChild(divEl());
   [["テーマを編集",()=>openThemeEditor(anchor)],["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{ const it=document.createElement("div"); it.className="menu-item"; it.textContent=l; it.addEventListener("click",()=>{ closePop(); fn(); }); p.appendChild(it); });
   p.appendChild(divEl());
@@ -1015,7 +1027,7 @@ function openNoteFullscreen(n){
   const modal=document.getElementById("noteModal");
   const card=modal.querySelector(".nm-card");
   const th=themeById(n.themeId), color=th?th.color:"#888";
-  card.style.setProperty("--accent",color); card.style.setProperty("--accentGlow",hexToRgba(color,.6));
+  card.style.setProperty("--accent",color); card.style.setProperty("--accentGlow",hexToRgba(color,.42));
   const b=document.getElementById("nmBody"); b.value=n.text||""; b.style.fontSize=nmFontPx+"px";
   document.getElementById("nmThemebar").hidden=true;
   const d=document.getElementById("nmDel"); d.textContent="×"; d.classList.remove("armed");
@@ -1032,7 +1044,7 @@ function buildNmThemebar(){
   const tb=document.getElementById("nmThemebar"); tb.innerHTML="";
   state.themes.forEach(t=>{ const sw=document.createElement("div"); sw.className="sw"+(nmNote&&t.id===nmNote.themeId?" on":"");
     sw.innerHTML='<span class="d" style="background:'+t.color+'"></span>'+esc(t.name);
-    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const cd=document.querySelector("#noteModal .nm-card"); cd.style.setProperty("--accent",t.color); cd.style.setProperty("--accentGlow",hexToRgba(t.color,.6)); tb.hidden=true; });
+    sw.addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.themeId=t.id; save(); const cd=document.querySelector("#noteModal .nm-card"); cd.style.setProperty("--accent",t.color); cd.style.setProperty("--accentGlow",hexToRgba(t.color,.42)); tb.hidden=true; });
     tb.appendChild(sw); });
 }
 document.getElementById("nmBody").addEventListener("input",e=>{ if(nmNote){ nmNote.text=e.target.value; save(); } });
