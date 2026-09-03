@@ -549,7 +549,7 @@ function noteEl(n, pk){
     attachMobileNote(el,n,pk);
   }else{
     el.querySelector(".dot").after(makeStars(n,()=>refresh())); // 重要度★（PCはヘッダーに表示）
-    body.addEventListener("input",()=>{ n.text=body.innerText; save(); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } });
+    body.addEventListener("input",()=>{ n.text=body.innerText; save(); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } });
     body.addEventListener("paste",e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData("text"); document.execCommand("insertText",false,t); });
     el.querySelector(".note-head").addEventListener("pointerdown",e=>{ if(e.button&&e.button!==0)return; if(e.target.closest("button"))return; startDrag(e,n,el,pk); });
     el.addEventListener("contextmenu",e=>{ e.preventDefault(); openNoteMenu(n,e.clientX,e.clientY); });
@@ -571,7 +571,7 @@ function startResize(e,n,el,pk){
   e.preventDefault(); e.stopPropagation();
   const before=snapshot(), sx=e.clientX, ow=el.offsetWidth;
   try{el.setPointerCapture(e.pointerId);}catch(_){}
-  function mv(ev){ const w=Math.max(150,Math.min(560, ow+(ev.clientX-sx))); n.w=Math.round(w); el.style.width=n.w+"px"; noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
+  function mv(ev){ const w=Math.max(150,Math.min(560, ow+(ev.clientX-sx))); n.w=Math.round(w); el.style.width=n.w+"px"; noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
   function up(){ document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; pushUndo(before); save(); growBoard(pk); }
   document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
 }
@@ -593,7 +593,7 @@ function attachMobileNote(el,n,pk){
       if(dragging){
         const nx=Math.max(mc,oL+dx/z), ny=Math.max(mc,oT+dy/z);
         el.style.left=nx+"px"; el.style.top=ny+"px"; setpos(n,pk,Math.round(nx),Math.round(ny));
-        if(pk==="main"){ const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); }
+        if(pk==="main"){ const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); }
       }
     }
     function up(){
@@ -612,7 +612,7 @@ function startDrag(e,n,el,pk){
   const sx=e.clientX, sy=e.clientY, oL=px(n,pk), oT=py(n,pk);
   const z=zoomOf(el); const mc=minCoord(); // 縮小補正＋置ける最小座標
   el.classList.add("dragging"); try{el.setPointerCapture(e.pointerId);}catch(_){}
-  function mv(ev){ const nx=Math.max(mc,oL+(ev.clientX-sx)/z), ny=Math.max(mc,oT+(ev.clientY-sy)/z); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const b=el.parentElement, svg=b&&b.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
+  function mv(ev){ const nx=Math.max(mc,oL+(ev.clientX-sx)/z), ny=Math.max(mc,oT+(ev.clientY-sy)/z); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
   function up(){
     document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); el.classList.remove("dragging");
     setpos(n,pk,Math.round(Math.max(mc,parseFloat(el.style.left)||0)),Math.round(Math.max(mc,parseFloat(el.style.top)||0)));
@@ -651,7 +651,7 @@ function renderInto(div,pk,hintText){
   const O=boardOrigin();
   const wrap=document.createElement("div"); wrap.className="board-content"; wrap.style.left=O+"px"; wrap.style.top=O+"px"; div.appendChild(wrap);
   let svg=null;
-  if(pk==="main"){ svg=makeArrowSvg(); wrap.appendChild(svg); }
+  if(pk==="main"){ svg=makeArrowSvg(); svg.querySelector("g.wires").setAttribute("transform","translate("+O+","+O+")"); div.appendChild(svg); }
   if(!state.notes.length && hintText){ const h=document.createElement("div"); h.className="board-hint"; h.textContent=hintText; wrap.appendChild(h); }
   state.notes.forEach(n=>{ const el=noteEl(n,pk); el.style.left=px(n,pk)+"px"; el.style.top=py(n,pk)+"px"; if(n.w)el.style.width=n.w+"px"; if(pk==="sh"&&n.srot)el.style.transform="rotate("+n.srot+"deg)"; wrap.appendChild(el); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; });
   sizeBoard(div,pk);
@@ -726,6 +726,7 @@ const SVGNS="http://www.w3.org/2000/svg";
 function makeArrowSvg(){
   const svg=document.createElementNS(SVGNS,"svg"); svg.setAttribute("class","links");
   const defs=document.createElementNS(SVGNS,"defs"); defs.setAttribute("class","mkdefs"); svg.appendChild(defs);
+  const g=document.createElementNS(SVGNS,"g"); g.setAttribute("class","wires"); svg.appendChild(g); // 余白ぶんを平行移動して付箋に合わせる
   return svg;
 }
 function colorMarker(defs,id,color){
@@ -772,7 +773,8 @@ function tempPath(a,pk,cur){
 }
 function drawLinks(svg,pk){
   const defs=svg.querySelector("defs.mkdefs"); if(defs)defs.innerHTML="";
-  [...svg.querySelectorAll("path.wire,path.hit")].forEach(p=>p.remove());
+  const g=svg.querySelector("g.wires")||svg;
+  [...g.querySelectorAll("path.wire,path.hit")].forEach(p=>p.remove());
   (state.links||[]).forEach((link,i)=>{
     const a=state.notes.find(n=>n.id===link.from), b=state.notes.find(n=>n.id===link.to);
     if(!a||!b)return;
@@ -782,17 +784,18 @@ function drawLinks(svg,pk){
     const hit=document.createElementNS(SVGNS,"path"); hit.setAttribute("class","hit"); hit.setAttribute("d",d);
     hit.addEventListener("click",e=>{ e.stopPropagation(); openLinkMenu(link,e.clientX,e.clientY); });
     const w=document.createElementNS(SVGNS,"path"); w.setAttribute("class","wire"); w.setAttribute("d",d); w.setAttribute("stroke",color); w.setAttribute("marker-end","url(#"+mk+")");
-    svg.appendChild(hit); svg.appendChild(w);
+    g.appendChild(hit); g.appendChild(w);
   });
 }
 function startLink(e,src,el,pk){
-  const board=el.parentElement; const svg=board&&board.querySelector("svg.links"); if(!svg)return;
+  const wrap=el.parentElement; const bd=el.closest("#board,.sboard"); const svg=bd&&bd.querySelector("svg.links"); if(!svg)return;
+  const g=svg.querySelector("g.wires")||svg;
   svg.classList.add("linking");
-  const temp=document.createElementNS(SVGNS,"path"); temp.setAttribute("class","temp"); svg.appendChild(temp);
+  const temp=document.createElementNS(SVGNS,"path"); temp.setAttribute("class","temp"); g.appendChild(temp);
   let lastTarget=null;
   const z=zoomOf(el);
   function mv(ev){
-    const r=board.getBoundingClientRect(); const cur={x:(ev.clientX-r.left)/z,y:(ev.clientY-r.top)/z};
+    const r=wrap.getBoundingClientRect(); const cur={x:(ev.clientX-r.left)/z,y:(ev.clientY-r.top)/z};
     temp.setAttribute("d",tempPath(src,pk,cur));
     const te=document.elementFromPoint(ev.clientX,ev.clientY); const t=te&&te.closest?te.closest(".note"):null;
     if(lastTarget&&lastTarget!==t)lastTarget.classList.remove("link-target");
