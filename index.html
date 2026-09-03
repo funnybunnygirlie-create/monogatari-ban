@@ -479,7 +479,7 @@ document.getElementById("homeMenu").addEventListener("click",e=>{ const p=popup(
   [["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{const it=document.createElement("div");it.className="menu-item";it.textContent=l;it.addEventListener("click",()=>{closePop();fn();});p.appendChild(it);}); });
 
 /* ================= BOARD ================= */
-function openBoard(id){ state=app.boards.find(b=>b.id===id); if(!state)return; if(!state.links)state.links=[]; mode="normal"; undoStack=[]; closePop(); homeEl.style.display="none"; barEl.style.display="flex"; render(); centerBoard(); }
+function openBoard(id){ state=app.boards.find(b=>b.id===id); if(!state)return; if(!state.links)state.links=[]; mode="normal"; undoStack=[]; pcZoom=1; closePop(); homeEl.style.display="none"; barEl.style.display="flex"; render(); centerBoard(); }
 document.getElementById("toHome").addEventListener("click",goHome);
 titleInput.addEventListener("input",()=>{ if(state){ state.title=titleInput.value; save(); }});
 document.getElementById("undoBtn").addEventListener("click",doUndo);
@@ -644,6 +644,22 @@ function attachPan(scroller){
     document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
   });
 }
+// ホイール回転でボード全体を拡大縮小（PC・カーソル位置を中心に）
+function attachWheelZoom(scroller, getBoard){
+  scroller.addEventListener("wheel",e=>{
+    if(isMobileView())return;
+    e.preventDefault();
+    const board=getBoard(); if(!board)return;
+    const rect=scroller.getBoundingClientRect();
+    const old=parseFloat(board.style.zoom)||1;
+    const factor=e.deltaY<0?1.12:1/1.12;
+    const nz=Math.max(0.25, Math.min(3, old*factor));
+    const cxIn=scroller.scrollLeft+(e.clientX-rect.left), cyIn=scroller.scrollTop+(e.clientY-rect.top);
+    pcZoom=nz; board.style.zoom=nz;
+    scroller.scrollLeft=cxIn/old*nz-(e.clientX-rect.left);
+    scroller.scrollTop=cyIn/old*nz-(e.clientY-rect.top);
+  },{passive:false});
+}
 
 function renderInto(div,pk,hintText){
   div.style.zoom=""; // 実測は等倍で（ズームは呼び出し側で後掛け）
@@ -664,9 +680,9 @@ function computeBoardZoom(){
   const w = document.documentElement.clientWidth || window.innerWidth || 375;
   return Math.max(0.4, Math.min(1, w/(across*L.W)));
 }
-let pinchActive=false, userBoardZoom=null; // userBoardZoom=ピンチで決めた倍率（未設定なら自動フィット）
-function currentZoom(){ return isMobileView() ? (userBoardZoom||computeBoardZoom()) : 1; }
-function applyBoardZoom(){ boardEl.style.zoom = isMobileView() ? currentZoom() : ""; }
+let pinchActive=false, userBoardZoom=null, pcZoom=1; // userBoardZoom=スマホのピンチ倍率 / pcZoom=PCのホイール倍率
+function currentZoom(){ return isMobileView() ? (userBoardZoom||computeBoardZoom()) : pcZoom; }
+function applyBoardZoom(){ boardEl.style.zoom = currentZoom(); }
 /* ピンチ中はスクロールを止めて拡大、指を離したらスクロール可（scroller=スクロールする器, getBoard=拡大する盤） */
 function attachPinchZoom(scroller, getBoard){
   const dist=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
@@ -719,7 +735,7 @@ function addAt(pk,x,y){
 function focusNote(id){ if(isMobileView()){ const n=state.notes.find(x=>x.id===id); if(n){ openNoteFullscreen(n); return; } } const el=document.querySelector('.note[data-id="'+id+'"] .note-body'); if(el)el.focus(); }
 function dblAddOn(board,pk,e){ if(e.target.closest&&e.target.closest(".note"))return; const wrap=board.querySelector(".board-content"); if(!wrap)return; const wr=wrap.getBoundingClientRect(); const z=parseFloat(board.style.zoom)||1; addAt(pk,(e.clientX-wr.left)/z,(e.clientY-wr.top)/z); }
 stageEl.addEventListener("dblclick",e=>dblAddOn(boardEl,"main",e));
-attachPan(stageEl);
+attachPan(stageEl); attachWheelZoom(stageEl,()=>boardEl);
 
 /* ================= ARROWS (links) ================= */
 const SVGNS="http://www.w3.org/2000/svg";
