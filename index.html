@@ -71,10 +71,10 @@
   .note:hover{border-color:#45454f;}
   .note.pinned{border-left-width:6px;border-color:#484853;}
   .note.dragging{z-index:60;box-shadow:0 14px 30px rgba(0,0,0,.5);transition:none;}
-  .note.held{box-shadow:0 0 0 1.5px rgba(230,179,77,.8), 0 0 20px 3px rgba(230,179,77,.38), var(--shadow);}
-  .note.held:hover{box-shadow:0 0 0 1.5px rgba(230,179,77,.95), 0 0 24px 4px rgba(230,179,77,.5), var(--shadow);}
-  .note-head .hold{font-size:11px;font-weight:700;}
-  .note-head .hold.on{color:#e6b34d;background:rgba(230,179,77,.16);}
+  .note.held{box-shadow:0 0 0 1px rgba(255,255,255,.38), 0 0 13px 2px rgba(255,255,255,.13), var(--shadow);}
+  .note.held:hover{box-shadow:0 0 0 1px rgba(255,255,255,.52), 0 0 17px 3px rgba(255,255,255,.18), var(--shadow);}
+  .note-head .hold{font-size:12px;}
+  .note-head .hold.on{color:#eaeaf0;background:rgba(255,255,255,.12);}
   .note .rz{position:absolute;top:6px;bottom:6px;right:0;width:10px;cursor:ew-resize;z-index:6;}
   .note .rz:hover{background:linear-gradient(to left,rgba(255,255,255,.14),transparent);}
   .note-head{display:flex;align-items:center;gap:2px;height:26px;padding:0 4px 0 8px;cursor:grab;touch-action:none;flex:none;border-bottom:1px solid rgba(255,255,255,.03);}
@@ -149,9 +149,9 @@
   .nm-head .nm-ico{background:none;border:none;color:var(--muted-2);font-size:18px;padding:6px 10px;border-radius:7px;line-height:1;}
   .nm-head .nm-ico:hover{background:rgba(255,255,255,.07);color:var(--text);}
   .nm-head .nm-del.armed{color:#e6a6a6;background:#3a2626;font-size:13px;}
-  .nm-head .nm-hold{font-size:15px;font-weight:700;}
-  .nm-head .nm-hold.on{color:#e6b34d;}
-  .nm-card.held{box-shadow:0 0 0 2px rgba(230,179,77,.85), 0 0 30px 5px rgba(230,179,77,.4), 0 24px 60px rgba(0,0,0,.6);}
+  .nm-head .nm-hold{font-size:17px;}
+  .nm-head .nm-hold.on{color:#eaeaf0;}
+  .nm-card.held{box-shadow:0 0 0 1.5px rgba(255,255,255,.42), 0 0 22px 4px rgba(255,255,255,.15), 0 24px 60px rgba(0,0,0,.6);}
   .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
   .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
   .nm-themebar .sw.on{border-color:var(--muted);}
@@ -208,7 +208,7 @@
         <button class="nm-dot" id="nmDot" title="テーマを変更"></button>
         <span class="nm-stars" id="nmStars"></span>
         <span class="nm-spacer"></span>
-        <button class="nm-ico nm-hold" id="nmHold" title="保留">保</button>
+        <button class="nm-ico nm-hold" id="nmHold" title="保留">⏸</button>
         <button class="nm-ico nm-pin" id="nmPin" title="固定">📍</button>
         <button class="nm-ico nm-del" id="nmDel" title="削除">×</button>
       </div>
@@ -557,7 +557,7 @@ function noteEl(n, pk){
     attachMobileNote(el,n,pk);
   }else{
     el.querySelector(".dot").after(makeStars(n,()=>refresh())); // 重要度★（PCはヘッダーに表示）
-    const hb=document.createElement("button"); hb.className="icn hold"+(n.held?" on":""); hb.textContent="保"; hb.title=n.held?"保留を解除":"保留にする"; // 保留トグル
+    const hb=document.createElement("button"); hb.className="icn hold"+(n.held?" on":""); hb.textContent="⏸"; hb.title=n.held?"保留を解除":"保留にする"; // 保留トグル
     hb.addEventListener("click",e=>{ e.stopPropagation(); pushUndo(snapshot()); n.held=!n.held; save(); refresh(); });
     el.querySelector(".pin").before(hb);
     body.addEventListener("input",()=>{ n.text=body.innerText; save(); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } });
