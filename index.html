@@ -624,8 +624,8 @@ function startDrag(e,n,el,pk){
 const noteSizes={}; // id -> {w,h}（描画後に実測。矢印・盤サイズ計算で使う）
 function nW(n){ const s=noteSizes[n.id]; return (s&&s.w)||(n.w||L.W); }
 function nH(n){ const s=noteSizes[n.id]; return (s&&s.h)||L.H; }
-// ---- 無限キャンバス：通常画面だけ上下左右に余白(ORIGIN)を持たせ、上や左にも付箋を置ける ----
-const ORIGIN=1000;
+// ---- 無限キャンバス：通常画面だけ上下左右に広い余白(ORIGIN)を持たせ、上や左にも付箋を置ける ----
+const ORIGIN=6000;
 function boardOrigin(){ return mode==="normal"?ORIGIN:0; }
 function minCoord(){ return -Math.max(0, boardOrigin()-40); } // 付箋を置ける最小座標（画面外にはみ出さない範囲）
 function zoomOf(el){ const b=el&&el.closest&&el.closest("#board,.sboard"); return b?(parseFloat(b.style.zoom)||1):1; }
