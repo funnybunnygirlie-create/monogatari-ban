@@ -71,6 +71,10 @@
   .note:hover{border-color:#45454f;}
   .note.pinned{border-left-width:6px;border-color:#484853;}
   .note.dragging{z-index:60;box-shadow:0 14px 30px rgba(0,0,0,.5);transition:none;}
+  .note.held{box-shadow:0 0 0 1.5px rgba(230,179,77,.8), 0 0 20px 3px rgba(230,179,77,.38), var(--shadow);}
+  .note.held:hover{box-shadow:0 0 0 1.5px rgba(230,179,77,.95), 0 0 24px 4px rgba(230,179,77,.5), var(--shadow);}
+  .note-head .hold{font-size:11px;font-weight:700;}
+  .note-head .hold.on{color:#e6b34d;background:rgba(230,179,77,.16);}
   .note .rz{position:absolute;top:6px;bottom:6px;right:0;width:10px;cursor:ew-resize;z-index:6;}
   .note .rz:hover{background:linear-gradient(to left,rgba(255,255,255,.14),transparent);}
   .note-head{display:flex;align-items:center;gap:2px;height:26px;padding:0 4px 0 8px;cursor:grab;touch-action:none;flex:none;border-bottom:1px solid rgba(255,255,255,.03);}
@@ -145,6 +149,9 @@
   .nm-head .nm-ico{background:none;border:none;color:var(--muted-2);font-size:18px;padding:6px 10px;border-radius:7px;line-height:1;}
   .nm-head .nm-ico:hover{background:rgba(255,255,255,.07);color:var(--text);}
   .nm-head .nm-del.armed{color:#e6a6a6;background:#3a2626;font-size:13px;}
+  .nm-head .nm-hold{font-size:15px;font-weight:700;}
+  .nm-head .nm-hold.on{color:#e6b34d;}
+  .nm-card.held{box-shadow:0 0 0 2px rgba(230,179,77,.85), 0 0 30px 5px rgba(230,179,77,.4), 0 24px 60px rgba(0,0,0,.6);}
   .nm-themebar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);}
   .nm-themebar .sw{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:18px;font-size:13.5px;cursor:pointer;background:var(--card);}
   .nm-themebar .sw.on{border-color:var(--muted);}
@@ -201,6 +208,7 @@
         <button class="nm-dot" id="nmDot" title="テーマを変更"></button>
         <span class="nm-stars" id="nmStars"></span>
         <span class="nm-spacer"></span>
+        <button class="nm-ico nm-hold" id="nmHold" title="保留">保</button>
         <button class="nm-ico nm-pin" id="nmPin" title="固定">📍</button>
         <button class="nm-ico nm-del" id="nmDel" title="削除">×</button>
       </div>
@@ -441,7 +449,7 @@ function sampleBoard(){
 function normalizeBoard(b){
   b.id=b.id||rid("b"); b.title=b.title||"無題のボード";
   b.themes=(b.themes&&b.themes.length)?b.themes:starterThemes(); b.nextId=b.nextId||1; b.spawn=b.spawn||0; b.links=b.links||[];
-  b.notes=(b.notes||[]).map((n,i)=>{ if(!n.x&&!n.y){n.x=30+(i%4)*235;n.y=30+Math.floor(i/4)*150;} return {id:n.id||(b.nextId++).toString(),text:n.text||"",themeId:(b.themes.find(t=>t.id===n.themeId)?n.themeId:b.themes[0].id),pinned:!!n.pinned,x:n.x,y:n.y,sx:n.sx,sy:n.sy,srot:n.srot,w:n.w,stars:n.stars||0}; });
+  b.notes=(b.notes||[]).map((n,i)=>{ if(!n.x&&!n.y){n.x=30+(i%4)*235;n.y=30+Math.floor(i/4)*150;} return {id:n.id||(b.nextId++).toString(),text:n.text||"",themeId:(b.themes.find(t=>t.id===n.themeId)?n.themeId:b.themes[0].id),pinned:!!n.pinned,x:n.x,y:n.y,sx:n.sx,sy:n.sy,srot:n.srot,w:n.w,stars:n.stars||0,held:!!n.held}; });
   return b;
 }
 
@@ -531,7 +539,7 @@ function reorderTheme(srcId,targetId,clientX,targetEl){
 function deleteNote(n){ pushUndo(snapshot()); state.notes=state.notes.filter(m=>m!==n); if(state.links)state.links=state.links.filter(l=>l.from!==n.id&&l.to!==n.id); save(); refresh(); }
 function noteEl(n, pk){
   const th=themeById(n.themeId);
-  const el=document.createElement("div"); el.className="note"+(n.pinned?" pinned":""); el.dataset.id=n.id;
+  const el=document.createElement("div"); el.className="note"+(n.pinned?" pinned":"")+(n.held?" held":""); el.dataset.id=n.id;
   el.style.setProperty("--accent", th?th.color:"#888");
   const linkBtn = pk==="main" ? '<button class="icn link" title="ドラッグで矢印をつなぐ">⤳</button>' : '';
   el.innerHTML='<div class="note-head"><button class="dot" title="テーマを変更"></button><span class="spacer"></span>'+linkBtn+
@@ -549,6 +557,9 @@ function noteEl(n, pk){
     attachMobileNote(el,n,pk);
   }else{
     el.querySelector(".dot").after(makeStars(n,()=>refresh())); // 重要度★（PCはヘッダーに表示）
+    const hb=document.createElement("button"); hb.className="icn hold"+(n.held?" on":""); hb.textContent="保"; hb.title=n.held?"保留を解除":"保留にする"; // 保留トグル
+    hb.addEventListener("click",e=>{ e.stopPropagation(); pushUndo(snapshot()); n.held=!n.held; save(); refresh(); });
+    el.querySelector(".pin").before(hb);
     body.addEventListener("input",()=>{ n.text=body.innerText; save(); noteSizes[n.id]={w:el.offsetWidth,h:el.offsetHeight}; if(pk==="main"){ const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } });
     body.addEventListener("paste",e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData("text"); document.execCommand("insertText",false,t); });
     el.querySelector(".note-head").addEventListener("pointerdown",e=>{ if(e.button&&e.button!==0)return; if(e.target.closest("button"))return; startDrag(e,n,el,pk); });
@@ -1007,10 +1018,11 @@ function openNoteFullscreen(n){
   document.getElementById("nmThemebar").hidden=true;
   const d=document.getElementById("nmDel"); d.textContent="×"; d.classList.remove("armed");
   fillNmStars(n);
-  updateNmPin();
+  updateNmPin(); updateNmHold();
   modal.hidden=false;
   setTimeout(()=>{ b.focus(); },60);
 }
+function updateNmHold(){ const btn=document.getElementById("nmHold"), card=document.querySelector("#noteModal .nm-card"); if(!nmNote)return; btn.classList.toggle("on",!!nmNote.held); btn.title=nmNote.held?"保留を解除":"保留にする"; if(card)card.classList.toggle("held",!!nmNote.held); }
 function fillNmStars(n){ const sc=document.getElementById("nmStars"); if(!sc)return; sc.innerHTML=""; sc.appendChild(makeStars(n,()=>fillNmStars(n))); }
 function closeNoteFullscreen(){ document.getElementById("noteModal").hidden=true; nmNote=null; refresh(); }
 function updateNmPin(){ const b=document.getElementById("nmPin"); if(nmNote)b.textContent=nmNote.pinned?"📌":"📍"; }
@@ -1023,6 +1035,7 @@ function buildNmThemebar(){
 }
 document.getElementById("nmBody").addEventListener("input",e=>{ if(nmNote){ nmNote.text=e.target.value; save(); } });
 document.getElementById("nmPin").addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.pinned=!nmNote.pinned; save(); updateNmPin(); });
+document.getElementById("nmHold").addEventListener("click",()=>{ if(!nmNote)return; pushUndo(snapshot()); nmNote.held=!nmNote.held; save(); updateNmHold(); });
 document.getElementById("nmDel").addEventListener("click",()=>{ if(!nmNote)return; const d=document.getElementById("nmDel"); if(!nmDelArmed){ nmDelArmed=true; d.textContent="削除"; d.classList.add("armed"); toast("もう一度押すと削除します"); setTimeout(()=>{ nmDelArmed=false; if(d){d.textContent="×";d.classList.remove("armed");} },2500); return; } const n=nmNote; closeNoteFullscreen(); deleteNote(n); });
 document.getElementById("nmDot").addEventListener("click",()=>{ const tb=document.getElementById("nmThemebar"); if(tb.hidden){ buildNmThemebar(); tb.hidden=false; } else tb.hidden=true; });
 document.getElementById("noteModal").addEventListener("click",e=>{ if(e.target.id==="noteModal") closeNoteFullscreen(); }); // 背景タップで閉じる
