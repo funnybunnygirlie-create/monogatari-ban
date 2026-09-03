@@ -641,10 +641,15 @@ function nW(n){ const s=noteSizes[n.id]; return (s&&s.w)||(n.w||L.W); }
 function nH(n){ const s=noteSizes[n.id]; return (s&&s.h)||L.H; }
 // ---- 無限キャンバス：通常画面だけ上下左右に広い余白(ORIGIN)を持たせ、上や左にも付箋を置ける ----
 const ORIGIN=6000;
-function boardOrigin(){ return (mode==="normal" && !isMobileView()) ? ORIGIN : 0; } // スマホは余白なし（PCだけ広いキャンバス）
-function minCoord(){ return -Math.max(0, boardOrigin()-40); } // 付箋を置ける最小座標（画面外にはみ出さない範囲）
+function boardOrigin(){
+  if(mode!=="normal") return 0;
+  if(!isMobileView()) return ORIGIN;           // PCは広いキャンバス
+  let mn=0; if(state&&state.notes) state.notes.forEach(n=>{ mn=Math.min(mn, px(n,"main"), py(n,"main")); });
+  return mn<0 ? Math.ceil(-mn)+40 : 0;         // スマホは余白なし。ただし負の位置の付箋があれば見えるぶんだけ確保
+}
+function minCoord(){ return isMobileView()?0:-Math.max(0, boardOrigin()-40); } // 置ける最小座標（スマホは0、PCは余白ぶん負までOK）
 function zoomOf(el){ const b=el&&el.closest&&el.closest("#board,.sboard"); return b?(parseFloat(b.style.zoom)||1):1; }
-function sizeBoard(div,pk){ const O=boardOrigin(); let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,O+px(n,pk)+nW(n)+O); h=Math.max(h,O+py(n,pk)+nH(n)+O); }); div.style.width=Math.max(w,O*2+200)+"px"; div.style.height=Math.max(h,O*2+200)+"px"; }
+function sizeBoard(div,pk){ const O=boardOrigin(), mob=isMobileView(), trail=mob?60:O, minSz=mob?(O+140):(O*2+200); let w=div.clientWidth||600,h=div.clientHeight||400; state.notes.forEach(n=>{ w=Math.max(w,O+px(n,pk)+nW(n)+trail); h=Math.max(h,O+py(n,pk)+nH(n)+trail); }); div.style.width=Math.max(w,minSz)+"px"; div.style.height=Math.max(h,minSz)+"px"; }
 function growBoard(pk){ const div=pk==="sh"?curShBoard:curMainBoard; if(div)sizeBoard(div,pk); }
 function centerBoard(){ if(mode!=="normal")return; const t=Math.max(0, boardOrigin()*currentZoom()-80); stageEl.scrollLeft=t; stageEl.scrollTop=t; }
 function goToNotes(){ if(mode!=="normal")return; if(isMobileView())userBoardZoom=null; else pcZoom=1; applyBoardZoom(); centerBoard(); } // ズームを戻して付箋の位置へ
@@ -705,7 +710,7 @@ function attachPinchZoom(scroller, getBoard){
   let startDist=0, baseZoom=1;
   scroller.addEventListener("touchstart",e=>{
     if(!isMobileView())return;
-    if(e.touches.length>=2){ pinchActive=true; startDist=dist(e.touches)||1; baseZoom=parseFloat(getBoard().style.zoom)||computeBoardZoom(); scroller.style.touchAction="none"; e.preventDefault(); }
+    if(e.touches.length>=2){ pinchActive=true; startDist=dist(e.touches)||1; baseZoom=parseFloat(getBoard().style.zoom)||computeBoardZoom(); e.preventDefault(); }
   },{passive:false});
   scroller.addEventListener("touchmove",e=>{
     if(!pinchActive)return;
@@ -720,7 +725,7 @@ function attachPinchZoom(scroller, getBoard){
       scroller.scrollLeft=cxIn/old*z-midX; scroller.scrollTop=cyIn/old*z-midY;
     }
   },{passive:false});
-  function end(e){ if(!pinchActive)return; if(e.touches.length===0){ pinchActive=false; scroller.style.touchAction=""; } else { e.preventDefault(); } }
+  function end(e){ if(e.touches.length<2){ pinchActive=false; } }
   scroller.addEventListener("touchend",end,{passive:false});
   scroller.addEventListener("touchcancel",end,{passive:false});
 }
