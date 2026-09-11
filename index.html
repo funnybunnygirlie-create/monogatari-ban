@@ -75,6 +75,8 @@
   .note.pinned{border-left-width:6px;border-color:#484853;}
   .note.dragging{z-index:60;box-shadow:0 14px 30px rgba(0,0,0,.5);transition:none;}
   .note.held{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 13px 2px var(--accentGlow,rgba(255,255,255,.18)), var(--shadow);}
+  .note.selected{outline:2px solid #6ea8ff;outline-offset:2px;}
+  .selbox{position:absolute;border:1px solid #6ea8ff;background:rgba(110,168,255,.12);pointer-events:none;z-index:70;border-radius:3px;}
   .note.held:hover{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 17px 3px var(--accentGlow,rgba(255,255,255,.22)), var(--shadow);}
   .note-head .hold{font-size:12px;}
   .note-head .hold.on{color:var(--accent,#eaeaf0);background:rgba(255,255,255,.1);}
@@ -235,6 +237,7 @@ const PALETTE=["#d08a78","#d0a85f","#8fb87f","#6aa9b5","#9d93c9","#cc8fb0","#a7a
 let app=null, state=null, mode="normal";
 let undoStack=[];
 let curMainBoard=null, curShBoard=null;
+let selectedIds=new Set(); // まとめて選択中の付箋id（PC）
 // ---- 保存先：ブラウザの localStorage（このPC・このブラウザに保存される） ----
 const LS_KEY="novelboard_v2";
 function lsAvailable(){ try{ const k="__lstest"+Math.random(); localStorage.setItem(k,"1"); localStorage.removeItem(k); return true; }catch(e){ return false; } }
@@ -492,7 +495,7 @@ document.getElementById("homeMenu").addEventListener("click",e=>{ const p=popup(
   [["エクスポート（全ボード）",doExport],["インポート",()=>document.getElementById("importFile").click()]].forEach(([l,fn])=>{const it=document.createElement("div");it.className="menu-item";it.textContent=l;it.addEventListener("click",()=>{closePop();fn();});p.appendChild(it);}); });
 
 /* ================= BOARD ================= */
-function openBoard(id){ state=app.boards.find(b=>b.id===id); if(!state)return; if(!state.links)state.links=[]; mode="normal"; undoStack=[]; pcZoom=1; closePop(); homeEl.style.display="none"; barEl.style.display="flex"; render(); centerBoard(); }
+function openBoard(id){ state=app.boards.find(b=>b.id===id); if(!state)return; if(!state.links)state.links=[]; mode="normal"; undoStack=[]; pcZoom=1; selectedIds=new Set(); closePop(); homeEl.style.display="none"; barEl.style.display="flex"; render(); centerBoard(); }
 document.getElementById("toHome").addEventListener("click",goHome);
 titleInput.addEventListener("input",()=>{ if(state){ state.title=titleInput.value; save(); }});
 document.getElementById("undoBtn").addEventListener("click",doUndo);
@@ -545,7 +548,7 @@ function reorderTheme(srcId,targetId,clientX,targetEl){
 function deleteNote(n){ pushUndo(snapshot()); state.notes=state.notes.filter(m=>m!==n); if(state.links)state.links=state.links.filter(l=>l.from!==n.id&&l.to!==n.id); save(); refresh(); }
 function noteEl(n, pk){
   const th=themeById(n.themeId);
-  const el=document.createElement("div"); el.className="note"+(n.pinned?" pinned":"")+(n.held?" held":""); el.dataset.id=n.id;
+  const el=document.createElement("div"); el.className="note"+(n.pinned?" pinned":"")+(n.held?" held":"")+(selectedIds.has(n.id)?" selected":""); el.dataset.id=n.id;
   el.style.setProperty("--accent", th?th.color:"#888");
   el.style.setProperty("--accentGlow", hexToRgba(th?th.color:"#888", .42));
   const linkBtn = pk==="main" ? '<button class="icn link" title="ドラッグで矢印をつなぐ">⤳</button>' : '';
@@ -626,18 +629,37 @@ function attachMobileNote(el,n,pk){
 }
 function startDrag(e,n,el,pk){
   e.preventDefault();
+  // 動かす対象（グループ）を決める：選択中の付箋をドラッグしたら選択全部、それ以外は単体
+  let members;
+  if(pk==="main" && selectedIds.has(n.id) && selectedIds.size>1){ members=state.notes.filter(m=>selectedIds.has(m.id)); }
+  else members=[n];
   const before=(pk==="main")?snapshot():null;
-  const sx=e.clientX, sy=e.clientY, oL=px(n,pk), oT=py(n,pk);
-  const z=zoomOf(el); const mc=minCoord(); // 縮小補正＋置ける最小座標
-  el.classList.add("dragging"); try{el.setPointerCapture(e.pointerId);}catch(_){}
-  function mv(ev){ const nx=Math.max(mc,oL+(ev.clientX-sx)/z), ny=Math.max(mc,oT+(ev.clientY-sy)/z); el.style.left=nx+"px"; el.style.top=ny+"px"; if(pk==="main"){ setpos(n,"main",Math.round(nx),Math.round(ny)); const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); } }
+  const sx=e.clientX, sy=e.clientY;
+  const z=zoomOf(el); const mc=minCoord();
+  const grp=members.map(m=>({m, oL:px(m,pk), oT:py(m,pk), el:document.querySelector('.note[data-id="'+m.id+'"]')}));
+  let moved=false;
+  try{el.setPointerCapture(e.pointerId);}catch(_){}
+  function mv(ev){
+    const dx=(ev.clientX-sx)/z, dy=(ev.clientY-sy)/z;
+    if(!moved && Math.hypot(ev.clientX-sx,ev.clientY-sy)>4){ moved=true; grp.forEach(o=>{ if(o.el)o.el.classList.add("dragging"); }); }
+    if(!moved)return;
+    grp.forEach(o=>{ const nx=Math.max(mc,o.oL+dx), ny=Math.max(mc,o.oT+dy); if(o.el){o.el.style.left=nx+"px";o.el.style.top=ny+"px";} setpos(o.m,pk,Math.round(nx),Math.round(ny)); });
+    if(pk==="main"){ const bd=el.closest("#board,.sboard"), svg=bd&&bd.querySelector("svg.links"); if(svg)drawLinks(svg,"main"); }
+  }
   function up(){
-    document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); el.classList.remove("dragging");
-    setpos(n,pk,Math.round(Math.max(mc,parseFloat(el.style.left)||0)),Math.round(Math.max(mc,parseFloat(el.style.top)||0)));
-    if(pk==="main"&&before)pushUndo(before);
-    save(); growBoard(pk);
+    document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up);
+    grp.forEach(o=>{ if(o.el)o.el.classList.remove("dragging"); });
+    if(moved){ if(pk==="main"&&before)pushUndo(before); save(); growBoard(pk); }
+    else if(pk==="main"){ // 動かさなかった＝クリック → 選択の切り替え
+      if(e.shiftKey){ const s=new Set(selectedIds); if(s.has(n.id))s.delete(n.id); else s.add(n.id); setSelection(s); }
+      else setSelection(new Set([n.id]));
+    }
   }
   document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
+}
+function setSelection(ids){
+  selectedIds=ids||new Set();
+  document.querySelectorAll(".note").forEach(el=>{ el.classList.toggle("selected", selectedIds.has(el.dataset.id)); });
 }
 const noteSizes={}; // id -> {w,h}（描画後に実測。矢印・盤サイズ計算で使う）
 function nW(n){ const s=noteSizes[n.id]; return (s&&s.w)||(n.w||L.W); }
@@ -767,7 +789,37 @@ function addAt(pk,x,y){
 function focusNote(id){ if(isMobileView()){ const n=state.notes.find(x=>x.id===id); if(n){ openNoteFullscreen(n); return; } } const el=document.querySelector('.note[data-id="'+id+'"] .note-body'); if(el)el.focus(); }
 function dblAddOn(board,pk,e){ if(e.target.closest&&e.target.closest(".note"))return; const wrap=board.querySelector(".board-content"); if(!wrap)return; const wr=wrap.getBoundingClientRect(); const z=parseFloat(board.style.zoom)||1; addAt(pk,(e.clientX-wr.left)/z,(e.clientY-wr.top)/z); }
 stageEl.addEventListener("dblclick",e=>dblAddOn(boardEl,"main",e));
-attachPan(stageEl); attachWheelZoom(stageEl,()=>boardEl);
+attachPan(stageEl); attachWheelZoom(stageEl,()=>boardEl); attachRubberband(stageEl,()=>boardEl);
+// 空いた所を四角くドラッグして複数選択（PC）
+function attachRubberband(scroller, getBoard){
+  scroller.addEventListener("pointerdown",e=>{
+    if(e.button!==0 || isMobileView())return;
+    if(e.target.closest(".note"))return; // 付箋の上からは開始しない
+    const board=getBoard(); const wrap=board.querySelector(".board-content"); if(!wrap)return;
+    const z=parseFloat(board.style.zoom)||1; const wr=wrap.getBoundingClientRect();
+    const x0=(e.clientX-wr.left)/z, y0=(e.clientY-wr.top)/z;
+    const addMode=e.shiftKey, base=addMode?new Set(selectedIds):new Set();
+    let box=null, moved=false;
+    function mv(ev){
+      if(!moved && Math.hypot(ev.clientX-e.clientX,ev.clientY-e.clientY)>4){ moved=true; box=document.createElement("div"); box.className="selbox"; wrap.appendChild(box); }
+      if(!moved)return;
+      ev.preventDefault();
+      const x1=(ev.clientX-wr.left)/z, y1=(ev.clientY-wr.top)/z;
+      const lx=Math.min(x0,x1),ly=Math.min(y0,y1),bw=Math.abs(x1-x0),bh=Math.abs(y1-y0);
+      box.style.left=lx+"px"; box.style.top=ly+"px"; box.style.width=bw+"px"; box.style.height=bh+"px";
+      const ns=new Set(base);
+      state.notes.forEach(n=>{ const nx=px(n,"main"),ny=py(n,"main"); if(nx<lx+bw && nx+nW(n)>lx && ny<ly+bh && ny+nH(n)>ly) ns.add(n.id); });
+      setSelection(ns);
+    }
+    function up(){
+      document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up);
+      if(box)box.remove();
+      if(!moved && !addMode) setSelection(new Set()); // 空クリックで解除
+    }
+    document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
+  });
+}
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && selectedIds.size){ const a=document.activeElement; if(a&&(a.isContentEditable||a.tagName==="INPUT"||a.tagName==="TEXTAREA"))return; setSelection(new Set()); } });
 
 /* ================= ARROWS (links) ================= */
 const SVGNS="http://www.w3.org/2000/svg";
