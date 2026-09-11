@@ -77,6 +77,7 @@
   .note.held{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 13px 2px var(--accentGlow,rgba(255,255,255,.18)), var(--shadow);}
   .note.selected{outline:2px solid #6ea8ff;outline-offset:2px;}
   .selbox{position:absolute;border:1px solid #6ea8ff;background:rgba(110,168,255,.12);pointer-events:none;z-index:70;border-radius:3px;}
+  .rb-selecting, .rb-selecting *{-webkit-user-select:none!important;user-select:none!important;}
   .note.held:hover{box-shadow:0 0 0 1.5px var(--accent,#888), 0 0 17px 3px var(--accentGlow,rgba(255,255,255,.22)), var(--shadow);}
   .note-head .hold{font-size:12px;}
   .note-head .hold.on{color:var(--accent,#eaeaf0);background:rgba(255,255,255,.1);}
@@ -801,9 +802,10 @@ function attachRubberband(scroller, getBoard){
     const addMode=e.shiftKey, base=addMode?new Set(selectedIds):new Set();
     let box=null, moved=false;
     function mv(ev){
-      if(!moved && Math.hypot(ev.clientX-e.clientX,ev.clientY-e.clientY)>4){ moved=true; box=document.createElement("div"); box.className="selbox"; wrap.appendChild(box); }
+      if(!moved && Math.hypot(ev.clientX-e.clientX,ev.clientY-e.clientY)>4){ moved=true; box=document.createElement("div"); box.className="selbox"; wrap.appendChild(box); document.body.classList.add("rb-selecting"); }
       if(!moved)return;
       ev.preventDefault();
+      const sel=window.getSelection&&window.getSelection(); if(sel&&sel.removeAllRanges)sel.removeAllRanges(); // 文字が青く選択されないように
       const x1=(ev.clientX-wr.left)/z, y1=(ev.clientY-wr.top)/z;
       const lx=Math.min(x0,x1),ly=Math.min(y0,y1),bw=Math.abs(x1-x0),bh=Math.abs(y1-y0);
       box.style.left=lx+"px"; box.style.top=ly+"px"; box.style.width=bw+"px"; box.style.height=bh+"px";
@@ -814,6 +816,8 @@ function attachRubberband(scroller, getBoard){
     function up(){
       document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up);
       if(box)box.remove();
+      document.body.classList.remove("rb-selecting");
+      const sel=window.getSelection&&window.getSelection(); if(sel&&sel.removeAllRanges)sel.removeAllRanges();
       if(!moved && !addMode) setSelection(new Set()); // 空クリックで解除
     }
     document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
